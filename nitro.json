@@ -1,0 +1,19 @@
+{
+  "cxxNamespace": ["onnx", "speech"],
+  "ios": {
+    "iosModuleName": "NitroOnnxSpeech"
+  },
+  "android": {
+    "androidNamespace": ["onnx", "speech"],
+    "androidCxxLibName": "NitroOnnxSpeech"
+  },
+  "autolinking": {
+    "NitroOnnxSpeech": {
+      "all": {
+        "language": "c++",
+        "implementationClassName": "NitroOnnxSpeech"
+      }
+    }
+  },
+  "ignorePaths": ["node_modules", "lib"]
+}
