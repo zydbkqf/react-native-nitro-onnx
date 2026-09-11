@@ -47,6 +47,8 @@ export interface VadConfig {
   minSpeechDurationMs?: number;
   /** How many milliseconds of audio to keep before onSpeechStart. Default: 300. */
   preBufferMs?: number;
+  /** Enable sherpa-onnx debug logging for this model. Default: false. */
+  debug?: boolean;
 }
 
 /** VAD segment delivered after speech ends or on explicit pull. */
@@ -130,6 +132,15 @@ export interface AsrModelConfig {
   language?: string;
   /** SenseVoice: whether to use itn. */
   useItn?: boolean;
+  /** Enable sherpa-onnx debug logging for this model. Default: false. */
+  debug?: boolean;
+  /**
+   * Execution provider for ONNX Runtime.
+   * Default: "qnn" on Android (Qualcomm NPU, unsupported ops fall back to CPU),
+   *          "coreml" on iOS (Apple Neural Engine, unsupported ops fall back to CPU).
+   * Pass "cpu" explicitly to disable NPU acceleration.
+   */
+  provider?: string;
 }
 
 export interface AsrResult {
@@ -243,6 +254,15 @@ export interface TtsModelConfig {
   speakerId?: number;
   /** Speed factor, e.g. 1.0. */
   speed?: number;
+  /** Enable sherpa-onnx debug logging for this model. Default: false. */
+  debug?: boolean;
+  /**
+   * Execution provider for ONNX Runtime.
+   * Default: "qnn" on Android (Qualcomm NPU, unsupported ops fall back to CPU),
+   *          "coreml" on iOS (Apple Neural Engine, unsupported ops fall back to CPU).
+   * Pass "cpu" explicitly to disable NPU acceleration.
+   */
+  provider?: string;
 }
 
 export interface TtsResult {
@@ -321,6 +341,6 @@ export interface OnnxSpeech extends HybridObject<SpeechPlatforms> {
   createSpeakerManager(): SpeakerManager;
   /** Get the module version. */
   readonly version: string;
-  /** Check if the CPU is a Qualcomm chip. Always returns false on iOS. */
-  isQualcommCpu(): boolean;
+  /** Returns the Qualcomm SoC model (e.g. "SM8550") on Android, or empty string on iOS / non-Qualcomm. */
+  getQualcommSoc(): string;
 }

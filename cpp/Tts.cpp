@@ -57,6 +57,12 @@ std::shared_ptr<Promise<void>> Tts::load(const TtsModelConfig& config) {
     native.outputSampleRate = static_cast<int32_t>(config.outputSampleRate.value_or(16000.0));
     native.speakerId = static_cast<int32_t>(config.speakerId.value_or(0.0));
     native.speed = static_cast<float>(config.speed.value_or(1.0));
+    native.debug = config.debug.value_or(false);
+#ifdef __APPLE__
+    native.provider = config.provider.value_or("coreml");
+#else
+    native.provider = config.provider.value_or("cpu");
+#endif
     engine_.load(native);
   });
 }

@@ -57,9 +57,9 @@ class OnnxSpeechPackage : ReactPackage {
     }
   }
 
-  override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
+  override fun getModule(name: String, reactContext: ReactApplicationContext): NativeModule? {
     ensureResources(reactContext)
-    return emptyList()
+    return super.getModule(name, reactContext)
   }
 
   @Suppress("OVERRIDE_DEPRECATION")

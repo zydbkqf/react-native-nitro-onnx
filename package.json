@@ -1,6 +1,6 @@
 {
   "name": "react-native-nitro-onnx",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "React Native Nitro module wrapping sherpa-onnx for local ASR, TTS, VAD and voice cloning",
   "license": "MIT",
   "homepage": "https://github.com/zydbkqf/react-native-nitro-onnx",

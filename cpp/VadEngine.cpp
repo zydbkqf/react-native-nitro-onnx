@@ -42,6 +42,7 @@ void VadEngine::initialize(const VadEngineConfig& config, std::shared_ptr<VadLis
   vadConfig.silero_vad.min_speech_duration = config_.minSpeechDuration;
   vadConfig.sample_rate = kSampleRate;
   vadConfig.num_threads = 1;
+  vadConfig.debug = config_.debug ? 1 : 0;
 
   // The second argument is the buffer size in milliseconds used internally by
   // sherpa-onnx. We reuse the configured pre-buffer duration.

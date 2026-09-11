@@ -22,7 +22,7 @@ All audio I/O uses zero-copy `ArrayBuffer` with **16 kHz mono f32 PCM**.
 - [Model File Requirements](#model-file-requirements)
 - [Installation](#installation)
 - [Usage](#usage)
-- [Qualcomm CPU Detection](#qualcomm-cpu-detection)
+- [Execution Providers](#execution-providers)
 - [VAD Pre-buffer](#vad-pre-buffer)
 - [Voice Cloning](#voice-cloning)
 - [Threading](#threading)
@@ -304,32 +304,67 @@ await tts.saveWav(audio, "/path/to/output.wav");
 > source.start();
 > ```
 
-## Qualcomm CPU Detection
+## Execution Providers
 
-Use `isQualcommCpu()` to detect Qualcomm chipsets and select optimized QNN execution providers:
+By default, the module automatically selects the best execution provider for your platform:
+
+- **Android:** `qnn` — uses Qualcomm NPU via QNN; unsupported operators fall back to NNAPI/CPU.
+- **iOS:** `coreml` — uses Apple Neural Engine via CoreML; unsupported operators fall back to CPU.
+
+To disable NPU acceleration and force CPU-only inference, pass `provider: "cpu"` explicitly:
+
+```typescript
+await asr.load({
+  type: "whisper",
+  // ... other config
+  provider: "cpu",
+});
+```
+
+### Qualcomm SoC Detection
+
+Use `getQualcommSoc()` to detect Qualcomm chipsets. Returns the SoC model string (e.g. `"SM8550"`, `"SM8650"`) on Qualcomm Android devices, or an empty string on iOS and non-Qualcomm chips.
+
+On Android, it first reads the `ro.soc.model` system property, then falls back to parsing `/proc/cpuinfo`.
 
 ```typescript
 const speech = getOnnxSpeech();
-const isQualcomm = speech.isQualcommCpu();
+const soc = speech.getQualcommSoc();
 
-if (isQualcomm) {
-  // Use QNN execution provider for better performance on Qualcomm chips
-  await asr.load({
-    type: "whisper",
-    // ... other config
-    provider: "qnn",
-  });
+if (soc) {
+  console.log(`Qualcomm SoC: ${soc}`);
+  // QNN is the default provider on Android — no need to specify it
+  await asr.load({ type: "whisper", /* ... */ });
 } else {
-  // Use CPU or other execution provider
-  await asr.load({
-    type: "whisper",
-    // ... other config
-    provider: "cpu",
-  });
+  await asr.load({ type: "whisper", /* ... */ provider: "cpu" });
 }
 ```
 
-> **Note:** `isQualcommCpu()` returns `false` on iOS. It checks `/proc/cpuinfo` on Android to detect Qualcomm processors.
+> **Note:** `getQualcommSoc()` returns `""` on iOS.
+
+### Building with QNN Support
+
+QNN is enabled by default on Android (the prebuilt sherpa-onnx libraries include QNN support). You do **not** need `QNN_ROOT` for normal usage.
+
+`QNN_ROOT` is **only** required when you need to bundle additional QNN Binary backend libraries from the Qualcomm AI Runtime (QAIRT) SDK. If you don't need the binary backend, simply omit `QNN_ROOT` — the default QNN execution provider works out of the box.
+
+**Download QAIRT SDK (only if you need QNN Binary):**
+
+Visit [Qualcomm Software Center](https://softwarecenter.qualcomm.com/api/download/software/sdks/Qualcomm_AI_Runtime_Community/All/2.40.0.251030/v2.40.0.251030.zip) to download the SDK (v2.40.0).
+
+**Specify QNN_ROOT (optional):**
+
+```bash
+# Via environment variable
+QNN_ROOT=/path/to/qnn/sdk ./gradlew assembleRelease
+
+# Or in android/gradle.properties
+QNN_ROOT=/path/to/qnn/sdk
+```
+
+When `QNN_ROOT` is set, the build system will link the QNN core library (`QnnHtp`) and all available HTP version libraries (`QnnHtpV73Stub`/`HtpV73`, `QnnHtpV75Stub`/`HtpV75`, etc.) from the SDK.
+
+> **Note:** QNN support is Android-only. On iOS, CoreML is used by default.
 
 ## VAD Pre-buffer
 

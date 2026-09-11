@@ -115,3 +115,54 @@ if(ANDROID)
 endif()
 find_package(Threads REQUIRED)
 target_link_libraries(${PROJECT_NAME} Threads::Threads)
+
+# QNN SDK support: pass -DQNN_ROOT=/path/to/qnn/sdk to enable QNN execution provider
+set(QNN_ROOT "" CACHE PATH "Path to Qualcomm QNN SDK root directory")
+if(QNN_ROOT)
+  message(NOTICE "🔧 QNN execution provider enabled")
+  message(NOTICE "📁 QNN SDK path: ${QNN_ROOT}")
+  target_include_directories(${PROJECT_NAME} PRIVATE "${QNN_ROOT}/include")
+  target_compile_definitions(${PROJECT_NAME} PRIVATE SHERPA_ONNX_ENABLE_QNN)
+
+  # QNN libraries are in lib/<arch>/ e.g. lib/aarch64-android/
+  set(_QNN_LIB_DIR "${QNN_ROOT}/lib/aarch64-android")
+  if(NOT EXISTS "${_QNN_LIB_DIR}")
+    # Fallback for older SDK layouts
+    set(_QNN_LIB_DIR "${QNN_ROOT}/lib/hexagon-v73")
+  endif()
+
+  # Link QNN core library
+  if(EXISTS "${_QNN_LIB_DIR}/libQnnHtp.so")
+    add_library(QnnHtp SHARED IMPORTED)
+    set_target_properties(QnnHtp PROPERTIES
+      IMPORTED_LOCATION "${_QNN_LIB_DIR}/libQnnHtp.so"
+    )
+    target_link_libraries(${PROJECT_NAME} QnnHtp)
+  endif()
+
+  # Link all available HTP version stubs and runtimes (v73, v75, v79, v81, etc.)
+  file(GLOB _QNN_HEXAGON_DIRS "${QNN_ROOT}/lib/hexagon-v*")
+  foreach(_HEXAGON_DIR ${_QNN_HEXAGON_DIRS})
+    get_filename_component(_HEXAGON_NAME "${_HEXAGON_DIR}" NAME)
+    # Extract version number from "hexagon-v73" -> "73"
+    string(REGEX REPLACE ".*hexagon-v([0-9]+).*" "\\1" _HTP_VER "${_HEXAGON_NAME}")
+    if(_HTP_VER)
+      set(_STUB_LIB "QnnHtpV${_HTP_VER}Stub")
+      set(_RUNTIME_LIB "HtpV${_HTP_VER}")
+
+      foreach(_QNN_LIB ${_STUB_LIB} ${_RUNTIME_LIB})
+        set(_LIB_PATH "${_HEXAGON_DIR}/lib${_QNN_LIB}.so")
+        if(EXISTS "${_LIB_PATH}")
+          add_library(${_QNN_LIB} SHARED IMPORTED)
+          set_target_properties(${_QNN_LIB} PROPERTIES
+            IMPORTED_LOCATION "${_LIB_PATH}"
+          )
+          target_link_libraries(${PROJECT_NAME} ${_QNN_LIB})
+        endif()
+      endforeach()
+    endif()
+  endforeach()
+else()
+  message(NOTICE "🔧 QNN execution provider enabled (without external SDK)")
+  target_compile_definitions(${PROJECT_NAME} PRIVATE SHERPA_ONNX_ENABLE_QNN)
+endif()

@@ -32,7 +32,7 @@ class NitroOnnxSpeech : public HybridOnnxSpeechSpec {
   std::shared_ptr<HybridTtsSpec> createTts() override;
   std::shared_ptr<HybridSpeakerManagerSpec> createSpeakerManager() override;
   std::string getVersion() override;
-  bool isQualcommCpu() override;
+  std::string getQualcommSoc() override;
 
  private:
   std::shared_ptr<ThreadPool> threadPool_;

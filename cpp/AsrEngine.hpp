@@ -41,6 +41,14 @@ struct AsrEngineConfig {
   int32_t maxActivePaths = 4;
   std::string language = "en";
   bool useItn = true;
+  bool debug = false;
+#ifdef __ANDROID__
+  std::string provider = "qnn";
+#elif defined(__APPLE__)
+  std::string provider = "coreml";
+#else
+  std::string provider = "cpu";
+#endif
 };
 
 /** Native recognition result before conversion to the generated AsrResult. */

@@ -68,7 +68,7 @@ namespace margelo::nitro::onnx::speech {
       virtual std::shared_ptr<HybridStreamingAsrSpec> createStreamingAsr() = 0;
       virtual std::shared_ptr<HybridTtsSpec> createTts() = 0;
       virtual std::shared_ptr<HybridSpeakerManagerSpec> createSpeakerManager() = 0;
-      virtual bool isQualcommCpu() = 0;
+      virtual std::string getQualcommSoc() = 0;
 
     protected:
       // Hybrid Setup

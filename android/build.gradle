@@ -24,6 +24,12 @@ android {
         arguments "-DANDROID_STL=c++_shared"
         abiFilters (*reactNativeArchitectures())
 
+        // Pass QNN_ROOT to CMake if provided via gradle.properties or env var
+        def qnnRoot = findProperty("QNN_ROOT") ?: System.getenv("QNN_ROOT")
+        if (qnnRoot) {
+          arguments "-DQNN_ROOT=${qnnRoot}"
+        }
+
         buildTypes {
           debug {
             cppFlags "-O1 -g"

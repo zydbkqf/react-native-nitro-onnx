@@ -96,7 +96,8 @@ void OfflineAsrEngine::load(const AsrEngineConfig& config) {
 
     c.model_config.tokens = tokens.c_str();
     c.model_config.num_threads = config_.numThreads;
-    c.model_config.debug = 0;
+    c.model_config.debug = config_.debug ? 1 : 0;
+    c.model_config.provider = config_.provider.c_str();
     c.decoding_method = config_.decodingMethod.c_str();
     c.max_active_paths = config_.maxActivePaths;
 
@@ -201,6 +202,8 @@ void StreamingAsrEngine::load(
 
     c.model_config.tokens = tokens.c_str();
     c.model_config.num_threads = config_.numThreads;
+    c.model_config.debug = config_.debug ? 1 : 0;
+    c.model_config.provider = config_.provider.c_str();
     c.decoding_method = config_.decodingMethod.c_str();
     c.max_active_paths = config_.maxActivePaths;
     c.enable_endpoint = 1;

@@ -53,6 +53,7 @@ std::shared_ptr<Promise<void>> Vad::initialize(const VadConfig& config) {
             .minSilenceDuration = static_cast<float>(config.minSilenceDurationMs.value_or(500.0)) / 1000.0f,
             .minSpeechDuration = static_cast<float>(config.minSpeechDurationMs.value_or(250.0)) / 1000.0f,
             .preBufferMs = static_cast<int32_t>(config.preBufferMs.value_or(300.0)),
+            .debug = config.debug.value_or(false),
         },
         shared_cast<Vad>());
   });

@@ -45,6 +45,12 @@ struct TtsEngineConfig {
   int32_t outputSampleRate = 16000;
   int32_t speakerId = 0;
   float speed = 1.0f;
+  bool debug = false;
+#ifdef __APPLE__
+  std::string provider = "coreml";
+#else
+  std::string provider = "cpu";
+#endif
 };
 
 /** Native synthesis result (samples are kept as a float vector). */

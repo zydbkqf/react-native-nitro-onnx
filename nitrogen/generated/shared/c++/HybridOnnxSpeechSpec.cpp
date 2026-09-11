@@ -20,7 +20,7 @@ namespace margelo::nitro::onnx::speech {
       prototype.registerHybridMethod("createStreamingAsr", &HybridOnnxSpeechSpec::createStreamingAsr);
       prototype.registerHybridMethod("createTts", &HybridOnnxSpeechSpec::createTts);
       prototype.registerHybridMethod("createSpeakerManager", &HybridOnnxSpeechSpec::createSpeakerManager);
-      prototype.registerHybridMethod("isQualcommCpu", &HybridOnnxSpeechSpec::isQualcommCpu);
+      prototype.registerHybridMethod("getQualcommSoc", &HybridOnnxSpeechSpec::getQualcommSoc);
     });
   }
 

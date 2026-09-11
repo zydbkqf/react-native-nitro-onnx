@@ -53,6 +53,18 @@ std::shared_ptr<Promise<void>> OfflineAsr::load(const AsrModelConfig& config) {
     native.maxActivePaths = static_cast<int32_t>(config.maxActivePaths.value_or(4));
     native.language = config.language.value_or("en");
     native.useItn = config.useItn.value_or(true);
+    native.debug = config.debug.value_or(false);
+#ifdef __ANDROID__
+  #if defined(SHERPA_ONNX_ENABLE_QNN)
+    native.provider = config.provider.value_or("qnn");
+  #else
+    native.provider = config.provider.value_or("nnapi");
+  #endif
+#elif defined(__APPLE__)
+    native.provider = config.provider.value_or("coreml");
+#else
+    native.provider = config.provider.value_or("cpu");
+#endif
     engine_.load(native);
   });
 }

@@ -47,6 +47,14 @@ std::shared_ptr<Promise<void>> StreamingAsr::load(const AsrModelConfig& config) 
     native.numThreads = static_cast<int32_t>(config.numThreads.value_or(2));
     native.decodingMethod = config.decodingMethod.value_or("greedy_search");
     native.maxActivePaths = static_cast<int32_t>(config.maxActivePaths.value_or(4));
+    native.debug = config.debug.value_or(false);
+#ifdef __ANDROID__
+    native.provider = config.provider.value_or("qnn");
+#elif defined(__APPLE__)
+    native.provider = config.provider.value_or("coreml");
+#else
+    native.provider = config.provider.value_or("cpu");
+#endif
     engine_.load(native, shared_cast<StreamingAsr>());
   });
 }

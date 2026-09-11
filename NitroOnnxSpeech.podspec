@@ -41,9 +41,11 @@ Pod::Spec.new do |s|
   # to match the inner framework name (SherpaOnnxC.framework), which CocoaPods
   # requires for correct linker flag generation.
   s.vendored_frameworks = "cpp/sherpa-onnx-prebuilt/ios/SherpaOnnxC.xcframework"
+  puts "[NitroOnnxSpeech] 🔧 CoreML execution provider enabled for iOS"
   s.pod_target_xcconfig = {
     "HEADER_SEARCH_PATHS" => '"$(PODS_TARGET_SRCROOT)/cpp/sherpa-onnx-prebuilt/include" "$(PODS_TARGET_SRCROOT)/cpp" "$(PODS_TARGET_SRCROOT)/nitrogen/generated/ios"',
-    "CLANG_CXX_LANGUAGE_STANDARD" => "c++20"
+    "CLANG_CXX_LANGUAGE_STANDARD" => "c++20",
+    "GCC_PREPROCESSOR_DEFINITIONS" => "$(inherited) SHERPA_ONNX_ENABLE_COREML=1"
   }
 
   load 'nitrogen/generated/ios/NitroOnnxSpeech+autolinking.rb'

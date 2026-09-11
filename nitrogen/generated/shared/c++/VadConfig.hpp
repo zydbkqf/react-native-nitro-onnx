@@ -45,10 +45,11 @@ namespace margelo::nitro::onnx::speech {
     std::optional<double> minSilenceDurationMs     SWIFT_PRIVATE;
     std::optional<double> minSpeechDurationMs     SWIFT_PRIVATE;
     std::optional<double> preBufferMs     SWIFT_PRIVATE;
+    std::optional<bool> debug     SWIFT_PRIVATE;
 
   public:
     VadConfig() = default;
-    explicit VadConfig(std::optional<std::string> modelPath, std::optional<double> threshold, std::optional<double> minSilenceDurationMs, std::optional<double> minSpeechDurationMs, std::optional<double> preBufferMs): modelPath(modelPath), threshold(threshold), minSilenceDurationMs(minSilenceDurationMs), minSpeechDurationMs(minSpeechDurationMs), preBufferMs(preBufferMs) {}
+    explicit VadConfig(std::optional<std::string> modelPath, std::optional<double> threshold, std::optional<double> minSilenceDurationMs, std::optional<double> minSpeechDurationMs, std::optional<double> preBufferMs, std::optional<bool> debug): modelPath(modelPath), threshold(threshold), minSilenceDurationMs(minSilenceDurationMs), minSpeechDurationMs(minSpeechDurationMs), preBufferMs(preBufferMs), debug(debug) {}
 
   public:
     friend bool operator==(const VadConfig& lhs, const VadConfig& rhs) = default;
@@ -68,7 +69,8 @@ namespace margelo::nitro {
         JSIConverter<std::optional<double>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "threshold"))),
         JSIConverter<std::optional<double>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "minSilenceDurationMs"))),
         JSIConverter<std::optional<double>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "minSpeechDurationMs"))),
-        JSIConverter<std::optional<double>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "preBufferMs")))
+        JSIConverter<std::optional<double>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "preBufferMs"))),
+        JSIConverter<std::optional<bool>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "debug")))
       );
     }
     static inline jsi::Value toJSI(jsi::Runtime& runtime, const margelo::nitro::onnx::speech::VadConfig& arg) {
@@ -78,6 +80,7 @@ namespace margelo::nitro {
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "minSilenceDurationMs"), JSIConverter<std::optional<double>>::toJSI(runtime, arg.minSilenceDurationMs));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "minSpeechDurationMs"), JSIConverter<std::optional<double>>::toJSI(runtime, arg.minSpeechDurationMs));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "preBufferMs"), JSIConverter<std::optional<double>>::toJSI(runtime, arg.preBufferMs));
+      obj.setProperty(runtime, PropNameIDCache::get(runtime, "debug"), JSIConverter<std::optional<bool>>::toJSI(runtime, arg.debug));
       return obj;
     }
     static inline bool canConvert(jsi::Runtime& runtime, const jsi::Value& value) {
@@ -93,6 +96,7 @@ namespace margelo::nitro {
       if (!JSIConverter<std::optional<double>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "minSilenceDurationMs")))) return false;
       if (!JSIConverter<std::optional<double>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "minSpeechDurationMs")))) return false;
       if (!JSIConverter<std::optional<double>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "preBufferMs")))) return false;
+      if (!JSIConverter<std::optional<bool>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "debug")))) return false;
       return true;
     }
   };

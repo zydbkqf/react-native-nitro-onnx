@@ -146,8 +146,8 @@ void TtsEngine::load(const TtsEngineConfig& config) {
     }
 
     c.model.num_threads = config_.numThreads;
-    c.model.debug = 1;
-    c.model.provider = "cpu";
+    c.model.debug = config_.debug ? 1 : 0;
+    c.model.provider = config_.provider.c_str();
     c.rule_fsts = "";
     c.rule_fars = "";
     c.max_num_sentences = 1;

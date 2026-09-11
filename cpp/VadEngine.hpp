@@ -34,6 +34,7 @@ struct VadEngineConfig {
   float minSilenceDuration = 0.5f;
   float minSpeechDuration = 0.25f;
   int32_t preBufferMs = 300;
+  bool debug = false;
 };
 
 /** One buffered or emitted speech segment with raw float samples. */

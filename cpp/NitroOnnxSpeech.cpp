@@ -13,6 +13,10 @@
 #include <cstdio>
 #include <cstring>
 
+#ifdef __ANDROID__
+#include <sys/system_properties.h>
+#endif
+
 namespace margelo::nitro::onnx::speech {
 
 NitroOnnxSpeech::NitroOnnxSpeech()
@@ -46,23 +50,39 @@ std::string NitroOnnxSpeech::getVersion() {
   return "0.1.0";
 }
 
-bool NitroOnnxSpeech::isQualcommCpu() {
+std::string NitroOnnxSpeech::getQualcommSoc() {
 #ifdef __ANDROID__
+  // 1) Try ro.soc.model first (available on most modern Android devices).
+  char prop[PROP_VALUE_MAX] = {0};
+  if (__system_property_get("ro.soc.model", prop) > 0 && prop[0] != '\0') {
+    return std::string(prop);
+  }
+
+  // 2) Fall back to parsing /proc/cpuinfo Hardware line.
   FILE* f = fopen("/proc/cpuinfo", "r");
-  if (!f) return false;
+  if (!f) return "";
   char line[256];
-  bool found = false;
   while (fgets(line, sizeof(line), f)) {
-    if (strstr(line, "Qualcomm") != nullptr) {
-      found = true;
-      break;
+    if (strncmp(line, "Hardware", 8) == 0) {
+      char* colon = strchr(line, ':');
+      if (!colon) break;
+      char* val = colon + 1;
+      while (*val == ' ' || *val == '\t') ++val;
+      char* nl = strchr(val, '\n');
+      if (nl) *nl = '\0';
+      if (strstr(val, "Qualcomm") == nullptr) break;
+      const char* last = strrchr(val, ' ');
+      if (last && *(last + 1) != '\0') {
+        fclose(f);
+        return std::string(last + 1);
+      }
+      fclose(f);
+      return std::string(val);
     }
   }
   fclose(f);
-  return found;
-#else
-  return false;
 #endif
+  return "";
 }
 
 }  // namespace margelo::nitro::onnx::speech
