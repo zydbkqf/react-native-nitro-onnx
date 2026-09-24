@@ -5,7 +5,6 @@
 
 #include "sherpa-onnx/c-api/c-api.h"
 
-#include <algorithm>
 #include <cstring>
 #include <stdexcept>
 
@@ -17,9 +16,6 @@ constexpr int32_t kSampleRate = 16000;
 
 }  // namespace
 
-VadEngine::VadEngine(std::shared_ptr<ThreadPool> threadPool)
-    : threadPool_(std::move(threadPool)) {}
-
 VadEngine::~VadEngine() {
   dispose();
 }
@@ -30,7 +26,7 @@ void VadEngine::initialize(const VadEngineConfig& config, std::shared_ptr<VadLis
   config_ = config;
   listener_ = std::move(listener);
   preBufferCapacity_ = static_cast<size_t>(msToSamples(config_.preBufferMs));
-  preBuffer_.reserve(preBufferCapacity_);
+  preBuffer_.clear();
   streamMs_ = 0.0f;
   inSpeech_ = false;
 
@@ -53,6 +49,7 @@ void VadEngine::initialize(const VadEngineConfig& config, std::shared_ptr<VadLis
 
   initialized_ = true;
   stop_ = false;
+  resetRequested_ = false;
   processorThread_ = std::thread(&VadEngine::processLoop, this);
 }
 
@@ -60,10 +57,10 @@ bool VadEngine::isInitialized() const {
   return initialized_.load();
 }
 
-void VadEngine::acceptWaveform(const std::vector<float>& samples) {
+void VadEngine::acceptWaveform(std::vector<float> samples) {
   {
     std::lock_guard<std::mutex> lock(inputMutex_);
-    inputQueue_.emplace(samples);
+    inputQueue_.emplace(std::move(samples));
   }
   inputCv_.notify_one();
 }
@@ -90,12 +87,9 @@ void VadEngine::reset() {
     pendingSegments_.clear();
   }
 
-  if (vad_) {
-    SherpaOnnxVoiceActivityDetectorClear(vad_);
-  }
-
-  // Defer speech-state clearing to the processor thread to avoid a data race.
+  // Clear the sherpa VAD on the processor thread to avoid racing with accept.
   resetRequested_ = true;
+  inputCv_.notify_one();
 }
 
 void VadEngine::dispose() {
@@ -117,9 +111,20 @@ void VadEngine::processLoop() {
     std::vector<float> chunk;
     {
       std::unique_lock<std::mutex> lock(inputMutex_);
-      inputCv_.wait(lock, [this]() { return stop_ || !inputQueue_.empty(); });
+      inputCv_.wait(lock, [this]() { return stop_ || resetRequested_ || !inputQueue_.empty(); });
       if (stop_) {
         break;
+      }
+      if (resetRequested_.exchange(false)) {
+        if (vad_) {
+          SherpaOnnxVoiceActivityDetectorClear(vad_);
+        }
+        inSpeech_ = false;
+        currentSpeechSamples_.clear();
+        streamMs_ = 0.0f;
+      }
+      if (inputQueue_.empty()) {
+        continue;
       }
       chunk = std::move(inputQueue_.front());
       inputQueue_.pop();
@@ -129,20 +134,13 @@ void VadEngine::processLoop() {
       continue;
     }
 
-    if (resetRequested_.exchange(false)) {
-      inSpeech_ = false;
-      currentSpeechSamples_.clear();
-      streamMs_ = 0.0f;
-    }
-
     // Update the sliding pre-buffer with the newest chunk. This is the key
     // mechanism that preserves leading audio for onSpeechStart/onSpeechEnd.
     {
       std::lock_guard<std::mutex> lock(preBufferMutex_);
       preBuffer_.insert(preBuffer_.end(), chunk.begin(), chunk.end());
-      if (preBuffer_.size() > preBufferCapacity_) {
-        const size_t excess = preBuffer_.size() - preBufferCapacity_;
-        preBuffer_.erase(preBuffer_.begin(), preBuffer_.begin() + excess);
+      while (preBuffer_.size() > preBufferCapacity_) {
+        preBuffer_.pop_front();
       }
     }
 
@@ -151,6 +149,7 @@ void VadEngine::processLoop() {
     streamMs_ += samplesToMs(static_cast<int32_t>(chunk.size()));
 
     const bool speechDetected = SherpaOnnxVoiceActivityDetectorDetected(vad_) != 0;
+    std::shared_ptr<VadListener> listener = listener_.lock();
 
     if (speechDetected && !inSpeech_) {
       // Transition to speech: capture the sliding pre-buffer as the start of
@@ -160,15 +159,15 @@ void VadEngine::processLoop() {
       currentSpeechStartMs_ = streamMs_ - samplesToMs(static_cast<int32_t>(chunk.size()));
       {
         std::lock_guard<std::mutex> lock(preBufferMutex_);
-        currentSpeechSamples_ = preBuffer_;
+        currentSpeechSamples_.assign(preBuffer_.begin(), preBuffer_.end());
       }
 
       VadEngineSegment startSegment;
       startSegment.startMs = currentSpeechStartMs_ - samplesToMs(static_cast<int32_t>(currentSpeechSamples_.size()));
       startSegment.endMs = currentSpeechStartMs_;
       startSegment.samples = currentSpeechSamples_;
-      if (listener_) {
-        listener_->onSpeechStart(startSegment);
+      if (listener) {
+        listener->onSpeechStart(startSegment);
       }
     }
 
@@ -200,19 +199,13 @@ void VadEngine::processLoop() {
         std::lock_guard<std::mutex> lock(outputMutex_);
         pendingSegments_.push_back(endSegment);
       }
-      if (listener_) {
-        listener_->onSpeechEnd(endSegment);
+      if (listener) {
+        listener->onSpeechEnd(endSegment);
       }
 
       inSpeech_ = false;
     }
   }
-}
-
-void VadEngine::flushPreBuffer(std::vector<float>& target) {
-  std::lock_guard<std::mutex> lock(preBufferMutex_);
-  target.insert(target.end(), preBuffer_.begin(), preBuffer_.end());
-  preBuffer_.clear();
 }
 
 }  // namespace margelo::nitro::onnx::speech

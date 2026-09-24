@@ -1,13 +1,12 @@
 // ------------------------------------------------------------------------------
 // TtsEngine.hpp
 // Text-to-speech wrapper backed by sherpa-onnx OfflineTts.
-// Supports Kokoro, VITS, Matcha, Pocket and ZipVoice (placeholder) models.
+// Supports Kokoro, VITS, Matcha, Pocket and ZipVoice models.
 // ------------------------------------------------------------------------------
 #pragma once
 
 #include "AudioUtils.hpp"
 #include "ModelSingleton.hpp"
-#include "ThreadPool.hpp"
 
 #include "TtsModelType.hpp"
 
@@ -51,6 +50,11 @@ struct TtsEngineConfig {
 #else
   std::string provider = "cpu";
 #endif
+
+  std::string cacheSignature() const {
+    return modelDir + "|" + std::to_string(static_cast<int>(type)) + "|" + provider + "|" +
+           std::to_string(numThreads) + "|" + std::to_string(outputSampleRate);
+  }
 };
 
 /** Native synthesis result (samples are kept as a float vector). */
@@ -60,10 +64,16 @@ struct TtsEngineResult {
   double durationMs = 0.0;
 };
 
+/** Optional zero-shot reference audio for voice-cloning models (e.g. Pocket). */
+struct TtsReferenceAudio {
+  std::vector<float> samples;
+  int32_t sampleRate = 16000;
+};
+
 /** Text-to-speech engine. */
 class TtsEngine final {
  public:
-  explicit TtsEngine(std::shared_ptr<ThreadPool> threadPool);
+  TtsEngine() = default;
   ~TtsEngine();
 
   TtsEngine(const TtsEngine&) = delete;
@@ -71,11 +81,14 @@ class TtsEngine final {
 
   void load(const TtsEngineConfig& config);
   bool isLoaded() const;
-  TtsEngineResult synthesize(const std::string& text, int32_t speakerId, float speed);
+  TtsEngineResult synthesize(
+      const std::string& text,
+      int32_t speakerId,
+      float speed,
+      const TtsReferenceAudio* referenceAudio = nullptr);
   void unload();
 
  private:
-  std::shared_ptr<ThreadPool> threadPool_;
   TtsEngineConfig config_;
   std::shared_ptr<const SherpaOnnxOfflineTts> tts_;
 };

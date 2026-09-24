@@ -4,8 +4,6 @@
 // ------------------------------------------------------------------------------
 #pragma once
 
-#include "ThreadPool.hpp"
-
 #include <NitroModules/HybridObject.hpp>
 #include <HybridOnnxSpeechSpec.hpp>
 #include <HybridOfflineAsrSpec.hpp>
@@ -33,10 +31,6 @@ class NitroOnnxSpeech : public HybridOnnxSpeechSpec {
   std::shared_ptr<HybridSpeakerManagerSpec> createSpeakerManager() override;
   std::string getVersion() override;
   std::string getQualcommSoc() override;
-
- private:
-  std::shared_ptr<ThreadPool> threadPool_;
-  std::string cacheDir_;
 };
 
 }  // namespace margelo::nitro::onnx::speech

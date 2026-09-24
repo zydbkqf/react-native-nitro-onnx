@@ -20,7 +20,7 @@ class StreamingAsr : public HybridStreamingAsrSpec,
  public:
   static constexpr auto TAG = "StreamingAsr";
 
-  explicit StreamingAsr(std::shared_ptr<ThreadPool> threadPool);
+  StreamingAsr();
   ~StreamingAsr() override;
 
   std::shared_ptr<Promise<void>> load(const AsrModelConfig& config) override;

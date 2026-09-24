@@ -14,8 +14,8 @@ if(BUILD_ONNX_SPEECH_TESTS)
   enable_testing()
   add_executable(NitroOnnxSpeechTests
     ../cpp/tests/test_core.cpp
-    ../cpp/ThreadPool.cpp
     ../cpp/AudioUtils.cpp
+    ../cpp/SpeakerRecord.cpp
   )
   target_include_directories(NitroOnnxSpeechTests PRIVATE ../cpp)
   find_package(Threads REQUIRED)
@@ -163,6 +163,8 @@ if(QNN_ROOT)
     endif()
   endforeach()
 else()
-  message(NOTICE "🔧 QNN execution provider enabled (without external SDK)")
-  target_compile_definitions(${PROJECT_NAME} PRIVATE SHERPA_ONNX_ENABLE_QNN)
+  # QNN runtime libraries (libQnnHtp.so etc.) are only linked when QNN_ROOT is
+  # set. Do not enable the QNN compile-time path without the SDK, otherwise the
+  # default provider ("qnn") would fail or silently fall back at runtime.
+  message(NOTICE "🔧 QNN execution provider disabled (set -DQNN_ROOT=... to enable)")
 endif()

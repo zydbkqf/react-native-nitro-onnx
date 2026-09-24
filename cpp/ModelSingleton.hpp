@@ -16,6 +16,9 @@ namespace margelo::nitro::onnx::speech {
 
 /**
  * Thread-safe cache for heavy model instances.
+ * The cache key must cover every config field that changes model identity
+ * (paths, provider, thread count, language, ...), otherwise a later load with
+ * different options would incorrectly reuse the first instance.
  * @tparam T The native model type (e.g. SherpaOnnxOfflineRecognizer).
  */
 template <typename T>
@@ -26,6 +29,7 @@ class ModelSingleton final {
   /** Return a cached instance or create one using factory. */
   std::shared_ptr<T> getOrCreate(const std::string& key, const Factory& factory) {
     std::lock_guard<std::mutex> lock(mutex_);
+    pruneExpiredLocked();
     auto it = instances_.find(key);
     if (it != instances_.end()) {
       if (auto alive = it->second.lock()) {
@@ -44,6 +48,16 @@ class ModelSingleton final {
   }
 
  private:
+  void pruneExpiredLocked() {
+    for (auto it = instances_.begin(); it != instances_.end();) {
+      if (it->second.expired()) {
+        it = instances_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+
   std::mutex mutex_;
   std::unordered_map<std::string, std::weak_ptr<T>> instances_;
 };

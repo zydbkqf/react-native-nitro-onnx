@@ -9,11 +9,11 @@
 
 #include "AudioUtils.hpp"
 #include "ModelSingleton.hpp"
-#include "ThreadPool.hpp"
 
 #include "AsrModelType.hpp"
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -42,13 +42,18 @@ struct AsrEngineConfig {
   std::string language = "en";
   bool useItn = true;
   bool debug = false;
-#ifdef __ANDROID__
+#if defined(__ANDROID__) && defined(SHERPA_ONNX_ENABLE_QNN)
   std::string provider = "qnn";
+#elif defined(__ANDROID__)
+  std::string provider = "nnapi";
 #elif defined(__APPLE__)
   std::string provider = "coreml";
 #else
   std::string provider = "cpu";
 #endif
+
+  /** Cache-key signature covering options that change recognizer identity. */
+  std::string cacheSignature() const;
 };
 
 /** Native recognition result before conversion to the generated AsrResult. */
@@ -73,7 +78,7 @@ class StreamingAsrListener {
 /** Offline ASR engine. */
 class OfflineAsrEngine final {
  public:
-  explicit OfflineAsrEngine(std::shared_ptr<ThreadPool> threadPool);
+  OfflineAsrEngine() = default;
   ~OfflineAsrEngine();
 
   OfflineAsrEngine(const OfflineAsrEngine&) = delete;
@@ -86,7 +91,7 @@ class OfflineAsrEngine final {
   void unload();
 
  private:
-  std::shared_ptr<ThreadPool> threadPool_;
+  mutable std::mutex mutex_;
   AsrEngineConfig config_;
   std::shared_ptr<const SherpaOnnxOfflineRecognizer> recognizer_;
 };
@@ -94,7 +99,7 @@ class OfflineAsrEngine final {
 /** Streaming ASR engine. */
 class StreamingAsrEngine final {
  public:
-  explicit StreamingAsrEngine(std::shared_ptr<ThreadPool> threadPool);
+  StreamingAsrEngine() = default;
   ~StreamingAsrEngine();
 
   StreamingAsrEngine(const StreamingAsrEngine&) = delete;
@@ -108,9 +113,9 @@ class StreamingAsrEngine final {
   void unload();
 
  private:
-  std::shared_ptr<ThreadPool> threadPool_;
+  mutable std::mutex mutex_;
   AsrEngineConfig config_;
-  std::shared_ptr<StreamingAsrListener> listener_;
+  std::weak_ptr<StreamingAsrListener> listener_;
   std::shared_ptr<const SherpaOnnxOnlineRecognizer> recognizer_;
   std::shared_ptr<const SherpaOnnxOnlineStream> stream_;
 };

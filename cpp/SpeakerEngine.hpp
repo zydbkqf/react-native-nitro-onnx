@@ -10,7 +10,8 @@
 
 #include "AudioUtils.hpp"
 #include "ModelSingleton.hpp"
-#include "ThreadPool.hpp"
+#include "ResourceDir.hpp"
+#include "SpeakerRecord.hpp"
 
 #include <memory>
 #include <string>
@@ -26,19 +27,19 @@ struct SpeakerEngineConfig {
   std::string modelDir;
   std::string model;
   int32_t numThreads = 4;
+
+  std::string cacheSignature() const {
+    return modelDir + "|speaker|" + model + "|" + std::to_string(numThreads);
+  }
 };
 
-/** Native registered speaker metadata before conversion to the generated type. */
-struct SpeakerEngineRegisteredSpeaker {
-  std::string id;
-  std::string name;
-  std::string embeddingPath;
-};
+/** Return the on-disk path for a registered speaker id under the document dir. */
+std::string speakerFilePath(const std::string& id);
 
 /** Speaker manager engine. */
 class SpeakerEngine final {
  public:
-  explicit SpeakerEngine(std::shared_ptr<ThreadPool> threadPool, std::string cacheDir);
+  SpeakerEngine() = default;
   ~SpeakerEngine();
 
   SpeakerEngine(const SpeakerEngine&) = delete;
@@ -51,18 +52,18 @@ class SpeakerEngine final {
   std::vector<float> computeEmbedding(const std::vector<float>& samples);
 
   /** Register a speaker embedding for later TTS use. */
-  SpeakerEngineRegisteredSpeaker registerSpeaker(const std::string& id, const std::string& name, const std::vector<float>& embedding);
+  SpeakerEngineRegisteredSpeaker registerSpeaker(
+      const std::string& id, const std::string& name, const std::vector<float>& embedding);
 
-  /** Register a speaker from a reference audio file. */
-  SpeakerEngineRegisteredSpeaker registerSpeakerFromFile(const std::string& id, const std::string& name, const std::string& path);
+  /** Register a speaker from a reference audio file (stores embedding + reference audio). */
+  SpeakerEngineRegisteredSpeaker registerSpeakerFromFile(
+      const std::string& id, const std::string& name, const std::string& path);
 
   std::vector<SpeakerEngineRegisteredSpeaker> listSpeakers();
   void removeSpeaker(const std::string& id);
   void unload();
 
  private:
-  std::shared_ptr<ThreadPool> threadPool_;
-  std::string cacheDir_;
   SpeakerEngineConfig config_;
   std::shared_ptr<const SherpaOnnxSpeakerEmbeddingExtractor> extractor_;
 };

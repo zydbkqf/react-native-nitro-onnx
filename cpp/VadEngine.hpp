@@ -12,9 +12,10 @@
 #pragma once
 
 #include "AudioUtils.hpp"
-#include "ThreadPool.hpp"
 
+#include <atomic>
 #include <condition_variable>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -62,7 +63,7 @@ class VadListener {
  */
 class VadEngine final {
  public:
-  explicit VadEngine(std::shared_ptr<ThreadPool> threadPool);
+  VadEngine() = default;
   ~VadEngine();
 
   VadEngine(const VadEngine&) = delete;
@@ -74,8 +75,8 @@ class VadEngine final {
   /** Return true if the VAD has been initialized. */
   bool isInitialized() const;
 
-  /** Feed a chunk of 16 kHz mono f32 PCM audio. Non-blocking. */
-  void acceptWaveform(const std::vector<float>& samples);
+  /** Feed a chunk of 16 kHz mono f32 PCM audio. Non-blocking. Takes ownership. */
+  void acceptWaveform(std::vector<float> samples);
 
   /** Return any buffered segments without waiting for speech end. */
   std::vector<VadEngineSegment> pullSegments();
@@ -88,11 +89,8 @@ class VadEngine final {
 
  private:
   void processLoop();
-  void flushPreBuffer(std::vector<float>& target);
-  void emitSegment();
 
-  std::shared_ptr<ThreadPool> threadPool_;
-  std::shared_ptr<VadListener> listener_;
+  std::weak_ptr<VadListener> listener_;
 
   const SherpaOnnxVoiceActivityDetector* vad_ = nullptr;
   VadEngineConfig config_;
@@ -107,7 +105,7 @@ class VadEngine final {
 
   // Sliding pre-buffer. Always holds the most recent N milliseconds of audio.
   std::mutex preBufferMutex_;
-  std::vector<float> preBuffer_;
+  std::deque<float> preBuffer_;
   size_t preBufferCapacity_ = 0;
 
   // Output segments waiting to be pulled.
@@ -117,7 +115,7 @@ class VadEngine final {
   // Processor thread.
   std::thread processorThread_;
 
-  // Stream time tracking.
+  // Stream time tracking. Only touched by the processor thread.
   float streamMs_ = 0.0f;
   bool inSpeech_ = false;
   float currentSpeechStartMs_ = 0.0f;

@@ -12,6 +12,7 @@ import java.io.FileOutputStream
 class OnnxSpeechPackage : ReactPackage {
   companion object {
     private const val TAG = "OnnxSpeechPackage"
+    private const val RESOURCE_NAME = "silero_vad.onnx"
 
     init {
       NitroOnnxSpeechOnLoad.initializeNative()
@@ -21,34 +22,42 @@ class OnnxSpeechPackage : ReactPackage {
     private external fun setResourceDir(dir: String)
 
     @JvmStatic
-    private external fun setCacheDir(dir: String)
+    private external fun setDocumentDir(dir: String)
 
     /**
      * Copies bundled model files from APK assets to internal storage so that
      * the C++ layer can access them via real file paths (fopen-compatible).
+     * Re-copies when the app version changes or a file is missing.
      * Called lazily when createNativeModules is first invoked.
      */
     internal fun ensureResources(context: Context) {
       val filesDir = context.filesDir
-      val marker = File(filesDir, ".resources_extracted")
-      if (marker.exists()) {
-        setResourceDir(filesDir.absolutePath)
-        setCacheDir(filesDir.absolutePath)
-        return
-      }
-      try {
-        copyAsset(context, "silero_vad.onnx", filesDir)
-        marker.createNewFile()
-        setResourceDir(filesDir.absolutePath)
-        setCacheDir(filesDir.absolutePath)
+
+      val version = try {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0"
       } catch (e: Exception) {
-        Log.e(TAG, "Failed to extract bundled resources", e)
+        "0"
       }
+      val marker = File(filesDir, ".resources_extracted_$version")
+      val resourceFile = File(filesDir, RESOURCE_NAME)
+      if (!marker.exists() || !resourceFile.exists()) {
+        try {
+          copyAsset(context, RESOURCE_NAME, filesDir, overwrite = true)
+          filesDir.listFiles()
+            ?.filter { it.name.startsWith(".resources_extracted") }
+            ?.forEach { it.delete() }
+          marker.createNewFile()
+        } catch (e: Exception) {
+          Log.e(TAG, "Failed to extract bundled resources", e)
+        }
+      }
+      setResourceDir(filesDir.absolutePath)
+      setDocumentDir(context.filesDir.absolutePath)
     }
 
-    private fun copyAsset(context: Context, name: String, destDir: File) {
+    private fun copyAsset(context: Context, name: String, destDir: File, overwrite: Boolean = false) {
       val dest = File(destDir, name)
-      if (dest.exists()) return
+      if (dest.exists() && !overwrite) return
       context.assets.open(name).use { input ->
         FileOutputStream(dest).use { output ->
           input.copyTo(output)

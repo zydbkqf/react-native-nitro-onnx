@@ -25,7 +25,7 @@ class Vad : public HybridVadSpec,
  public:
   static constexpr auto TAG = "Vad";
 
-  explicit Vad(std::shared_ptr<ThreadPool> threadPool);
+  Vad();
   ~Vad() override;
 
   std::shared_ptr<Promise<void>> initialize(const VadConfig& config) override;

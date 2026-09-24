@@ -28,15 +28,14 @@ AsrResult toAsrResult(const AsrEngineResult& native) {
 
 }  // namespace
 
-OfflineAsr::OfflineAsr(std::shared_ptr<ThreadPool> threadPool)
-    : HybridObject(TAG), engine_(std::move(threadPool)) {}
+OfflineAsr::OfflineAsr() : HybridObject(TAG) {}
 
 OfflineAsr::~OfflineAsr() {
   engine_.unload();
 }
 
 std::shared_ptr<Promise<void>> OfflineAsr::load(const AsrModelConfig& config) {
-  return Promise<void>::async([this, config]() {
+  return Promise<void>::async([self = shared_cast<OfflineAsr>(), config]() {
     AsrEngineConfig native;
     native.type = config.type;
     native.modelDir = config.modelDir;
@@ -54,18 +53,16 @@ std::shared_ptr<Promise<void>> OfflineAsr::load(const AsrModelConfig& config) {
     native.language = config.language.value_or("en");
     native.useItn = config.useItn.value_or(true);
     native.debug = config.debug.value_or(false);
-#ifdef __ANDROID__
-  #if defined(SHERPA_ONNX_ENABLE_QNN)
+#if defined(__ANDROID__) && defined(SHERPA_ONNX_ENABLE_QNN)
     native.provider = config.provider.value_or("qnn");
-  #else
+#elif defined(__ANDROID__)
     native.provider = config.provider.value_or("nnapi");
-  #endif
 #elif defined(__APPLE__)
     native.provider = config.provider.value_or("coreml");
 #else
     native.provider = config.provider.value_or("cpu");
 #endif
-    engine_.load(native);
+    self->engine_.load(native);
   });
 }
 
@@ -75,19 +72,19 @@ bool OfflineAsr::isLoaded() {
 
 std::shared_ptr<Promise<AsrResult>> OfflineAsr::recognize(
     const std::shared_ptr<ArrayBuffer>& samples) {
-  return Promise<AsrResult>::async([this, samples]() {
+  return Promise<AsrResult>::async([self = shared_cast<OfflineAsr>(), samples]() {
     auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
-    return toAsrResult(engine_.recognize(floatSamples));
+    return toAsrResult(self->engine_.recognize(floatSamples));
   });
 }
 
 std::shared_ptr<Promise<AsrResult>> OfflineAsr::recognizeFile(const std::string& path) {
   return Promise<AsrResult>::async(
-      [this, path]() { return toAsrResult(engine_.recognizeFile(path)); });
+      [self = shared_cast<OfflineAsr>(), path]() { return toAsrResult(self->engine_.recognizeFile(path)); });
 }
 
 std::shared_ptr<Promise<void>> OfflineAsr::unload() {
-  return Promise<void>::async([this]() { engine_.unload(); });
+  return Promise<void>::async([self = shared_cast<OfflineAsr>()]() { self->engine_.unload(); });
 }
 
 }  // namespace margelo::nitro::onnx::speech

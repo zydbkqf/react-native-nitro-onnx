@@ -5,6 +5,12 @@
 import { getOnnxSpeech, DEFAULT_AUDIO_FORMAT } from "../index";
 import { createHybridObject, resetMocks } from "../__mocks__/react-native-nitro-modules";
 import type { OnnxSpeech, Vad, OfflineAsr, StreamingAsr, Tts, SpeakerManager } from "../specs/OnnxSpeech.nitro";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+const packageVersion = JSON.parse(
+  readFileSync(join(__dirname, "..", "..", "package.json"), "utf8")
+).version as string;
 
 describe("react-native-nitro-onnx public API", () => {
   const mockVad: Vad = {
@@ -57,7 +63,7 @@ describe("react-native-nitro-onnx public API", () => {
     createStreamingAsr: jest.fn(() => mockStreamingAsr),
     createTts: jest.fn(() => mockTts),
     createSpeakerManager: jest.fn(() => mockSpeakerManager),
-    version: "0.1.0",
+    version: packageVersion,
   } as unknown as OnnxSpeech;
 
   beforeAll(() => {
@@ -85,6 +91,6 @@ describe("react-native-nitro-onnx public API", () => {
 
   it("reports the module version", () => {
     const speech = getOnnxSpeech();
-    expect(speech.version).toBe("0.1.0");
+    expect(speech.version).toBe(packageVersion);
   });
 });

@@ -28,15 +28,14 @@ AsrResult toAsrResult(const AsrEngineResult& native) {
 
 }  // namespace
 
-StreamingAsr::StreamingAsr(std::shared_ptr<ThreadPool> threadPool)
-    : HybridObject(TAG), engine_(std::move(threadPool)) {}
+StreamingAsr::StreamingAsr() : HybridObject(TAG) {}
 
 StreamingAsr::~StreamingAsr() {
   engine_.unload();
 }
 
 std::shared_ptr<Promise<void>> StreamingAsr::load(const AsrModelConfig& config) {
-  return Promise<void>::async([this, config]() {
+  return Promise<void>::async([self = shared_cast<StreamingAsr>(), config]() {
     AsrEngineConfig native;
     native.type = config.type;
     native.modelDir = config.modelDir;
@@ -48,14 +47,16 @@ std::shared_ptr<Promise<void>> StreamingAsr::load(const AsrModelConfig& config) 
     native.decodingMethod = config.decodingMethod.value_or("greedy_search");
     native.maxActivePaths = static_cast<int32_t>(config.maxActivePaths.value_or(4));
     native.debug = config.debug.value_or(false);
-#ifdef __ANDROID__
+#if defined(__ANDROID__) && defined(SHERPA_ONNX_ENABLE_QNN)
     native.provider = config.provider.value_or("qnn");
+#elif defined(__ANDROID__)
+    native.provider = config.provider.value_or("nnapi");
 #elif defined(__APPLE__)
     native.provider = config.provider.value_or("coreml");
 #else
     native.provider = config.provider.value_or("cpu");
 #endif
-    engine_.load(native, shared_cast<StreamingAsr>());
+    self->engine_.load(native, self);
   });
 }
 
@@ -65,22 +66,24 @@ bool StreamingAsr::isLoaded() {
 
 std::shared_ptr<Promise<void>> StreamingAsr::acceptWaveform(
     const std::shared_ptr<ArrayBuffer>& samples) {
-  return Promise<void>::async([this, samples]() {
+  return Promise<void>::async([self = shared_cast<StreamingAsr>(), samples]() {
     auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
-    engine_.acceptWaveform(floatSamples);
+    self->engine_.acceptWaveform(floatSamples);
   });
 }
 
 std::shared_ptr<Promise<AsrResult>> StreamingAsr::finalize() {
-  return Promise<AsrResult>::async([this]() { return toAsrResult(engine_.finalize()); });
+  return Promise<AsrResult>::async([self = shared_cast<StreamingAsr>()]() {
+    return toAsrResult(self->engine_.finalize());
+  });
 }
 
 std::shared_ptr<Promise<void>> StreamingAsr::reset() {
-  return Promise<void>::async([this]() { engine_.reset(); });
+  return Promise<void>::async([self = shared_cast<StreamingAsr>()]() { self->engine_.reset(); });
 }
 
 std::shared_ptr<Promise<void>> StreamingAsr::unload() {
-  return Promise<void>::async([this]() { engine_.unload(); });
+  return Promise<void>::async([self = shared_cast<StreamingAsr>()]() { self->engine_.unload(); });
 }
 
 std::optional<std::function<void(const AsrResult& /* result */)>> StreamingAsr::getOnPartialResult() {

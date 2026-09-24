@@ -10,6 +10,7 @@
 #include <HybridSpeakerManagerSpec.hpp>
 
 #include <memory>
+#include <string>
 
 namespace margelo::nitro::onnx::speech {
 
@@ -17,7 +18,7 @@ class SpeakerManager : public HybridSpeakerManagerSpec {
  public:
   static constexpr auto TAG = "SpeakerManager";
 
-  SpeakerManager(std::shared_ptr<ThreadPool> threadPool, std::string cacheDir);
+  SpeakerManager();
   ~SpeakerManager() override;
 
   std::shared_ptr<Promise<void>> load(const SpeakerEmbeddingConfig& config) override;

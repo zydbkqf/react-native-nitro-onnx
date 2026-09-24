@@ -17,8 +17,8 @@ Java_com_margelo_nitro_onnx_speech_OnnxSpeechPackage_setResourceDir(JNIEnv* env,
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_margelo_nitro_onnx_speech_OnnxSpeechPackage_setCacheDir(JNIEnv* env, jclass, jstring dir) {
+Java_com_margelo_nitro_onnx_speech_OnnxSpeechPackage_setDocumentDir(JNIEnv* env, jclass, jstring dir) {
   const char* utf = env->GetStringUTFChars(dir, nullptr);
-  margelo::nitro::onnx::speech::setCacheDir(utf);
+  margelo::nitro::onnx::speech::setDocumentDir(utf);
   env->ReleaseStringUTFChars(dir, utf);
 }

@@ -11,6 +11,7 @@
 
 #include <memory>
 #include <optional>
+#include <string>
 
 namespace margelo::nitro::onnx::speech {
 
@@ -18,7 +19,7 @@ class Tts : public HybridTtsSpec {
  public:
   static constexpr auto TAG = "Tts";
 
-  explicit Tts(std::shared_ptr<ThreadPool> threadPool);
+  Tts();
   ~Tts() override;
 
   std::shared_ptr<Promise<void>> load(const TtsModelConfig& config) override;

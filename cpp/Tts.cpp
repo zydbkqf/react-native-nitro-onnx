@@ -4,14 +4,18 @@
 #include "Tts.hpp"
 
 #include "AudioUtils.hpp"
+#include "SpeakerEngine.hpp"
 
 #include <NitroModules/ArrayBuffer.hpp>
+#include <bit>
 #include <fstream>
 #include <stdexcept>
 
 namespace margelo::nitro::onnx::speech {
 
 namespace {
+
+static_assert(std::endian::native == std::endian::little, "WAV writer assumes little-endian targets");
 
 TtsResult toTtsResult(const TtsEngineResult& native) {
   std::vector<uint8_t> bytes = floatVectorToBytes(native.samples);
@@ -23,15 +27,14 @@ TtsResult toTtsResult(const TtsEngineResult& native) {
 
 }  // namespace
 
-Tts::Tts(std::shared_ptr<ThreadPool> threadPool)
-    : HybridObject(TAG), engine_(std::move(threadPool)) {}
+Tts::Tts() : HybridObject(TAG) {}
 
 Tts::~Tts() {
   engine_.unload();
 }
 
 std::shared_ptr<Promise<void>> Tts::load(const TtsModelConfig& config) {
-  return Promise<void>::async([this, config]() {
+  return Promise<void>::async([self = shared_cast<Tts>(), config]() {
     TtsEngineConfig native;
     native.type = static_cast<TtsModelType>(config.type);
     native.modelDir = config.modelDir;
@@ -63,7 +66,7 @@ std::shared_ptr<Promise<void>> Tts::load(const TtsModelConfig& config) {
 #else
     native.provider = config.provider.value_or("cpu");
 #endif
-    engine_.load(native);
+    self->engine_.load(native);
   });
 }
 
@@ -72,9 +75,9 @@ bool Tts::isLoaded() {
 }
 
 std::shared_ptr<Promise<TtsResult>> Tts::synthesize(const std::string& text, std::optional<double> speed) {
-  return Promise<TtsResult>::async([this, text, speed]() {
+  return Promise<TtsResult>::async([self = shared_cast<Tts>(), text, speed]() {
     float spd = speed.has_value() ? static_cast<float>(speed.value()) : -1.0f;
-    return toTtsResult(engine_.synthesize(text, -1, spd));
+    return toTtsResult(self->engine_.synthesize(text, -1, spd));
   });
 }
 
@@ -82,10 +85,35 @@ std::shared_ptr<Promise<TtsResult>> Tts::synthesizeWithSpeaker(
     const std::string& text,
     const std::string& speakerId,
     std::optional<double> speed) {
-  return Promise<TtsResult>::async([this, text, speakerId, speed]() {
-    int32_t sid = std::stoi(speakerId);
+  return Promise<TtsResult>::async([self = shared_cast<Tts>(), text, speakerId, speed]() {
+    if (text.empty()) {
+      throw std::invalid_argument("TTS text must not be empty");
+    }
+    if (speakerId.empty()) {
+      throw std::invalid_argument("speakerId must not be empty");
+    }
     float spd = speed.has_value() ? static_cast<float>(speed.value()) : -1.0f;
-    return toTtsResult(engine_.synthesize(text, sid, spd));
+
+    // Numeric IDs are model-internal speaker indices (Kokoro / VITS multi-speaker).
+    int32_t sid = -1;
+    if (tryParseSpeakerIndex(speakerId, sid)) {
+      return toTtsResult(self->engine_.synthesize(text, sid, spd));
+    }
+
+    // String IDs refer to registered speakers (voice-cloning path).
+    const SpeakerEngineRegisteredSpeaker record =
+        readSpeakerRecord(speakerId, speakerFilePath(speakerId));
+    if (!record.referenceAudio.empty()) {
+      TtsReferenceAudio reference;
+      reference.samples = record.referenceAudio;
+      reference.sampleRate = record.referenceSampleRate > 0 ? record.referenceSampleRate : 16000;
+      return toTtsResult(self->engine_.synthesize(text, -1, spd, &reference));
+    }
+
+    throw std::invalid_argument(
+        "Speaker \"" + speakerId + "\" was registered from an embedding only. "
+        "Zero-shot TTS needs reference audio — use registerSpeakerFromFile(). "
+        "For multi-speaker models (kokoro/vits), pass a numeric speaker index instead.");
   });
 }
 
@@ -132,7 +160,7 @@ std::shared_ptr<Promise<void>> Tts::saveWav(const TtsResult& result, const std::
 }
 
 std::shared_ptr<Promise<void>> Tts::unload() {
-  return Promise<void>::async([this]() { engine_.unload(); });
+  return Promise<void>::async([self = shared_cast<Tts>()]() { self->engine_.unload(); });
 }
 
 }  // namespace margelo::nitro::onnx::speech

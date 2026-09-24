@@ -51,9 +51,6 @@ ModelSingleton<const SherpaOnnxOfflineTts> gTtsCache;
 
 }  // namespace
 
-TtsEngine::TtsEngine(std::shared_ptr<ThreadPool> threadPool)
-    : threadPool_(std::move(threadPool)) {}
-
 TtsEngine::~TtsEngine() {
   unload();
 }
@@ -62,8 +59,7 @@ void TtsEngine::load(const TtsEngineConfig& config) {
   unload();
   config_ = config;
 
-  const std::string key = config_.modelDir + "|" + std::to_string(static_cast<int>(config_.type));
-  auto cached = gTtsCache.getOrCreate(key, [this](const std::string&) {
+  auto cached = gTtsCache.getOrCreate(config_.cacheSignature(), [this](const std::string&) {
     SherpaOnnxOfflineTtsConfig c;
     std::memset(&c, 0, sizeof(c));
 
@@ -75,7 +71,6 @@ void TtsEngine::load(const TtsEngineConfig& config) {
     std::string voices = joinPath(config_.modelDir, config_.voices);
     std::string espeakNgData = joinPath(config_.modelDir, config_.espeakNgData);
     std::string dictDir = joinPath(config_.modelDir, config_.dictDir);
-    std::string configPath = joinPath(config_.modelDir, config_.config);
 
     std::string lmMain = joinPath(config_.modelDir, config_.lmMain);
     std::string lmFlow = joinPath(config_.modelDir, config_.lmFlow);
@@ -171,9 +166,16 @@ bool TtsEngine::isLoaded() const {
   return tts_ != nullptr;
 }
 
-TtsEngineResult TtsEngine::synthesize(const std::string& text, int32_t speakerId, float speed) {
+TtsEngineResult TtsEngine::synthesize(
+    const std::string& text,
+    int32_t speakerId,
+    float speed,
+    const TtsReferenceAudio* referenceAudio) {
   if (tts_ == nullptr) {
     throw std::runtime_error("TTS not loaded");
+  }
+  if (text.empty()) {
+    throw std::invalid_argument("TTS text must not be empty");
   }
 
   const int32_t sid = speakerId >= 0 ? speakerId : config_.speakerId;
@@ -183,6 +185,12 @@ TtsEngineResult TtsEngine::synthesize(const std::string& text, int32_t speakerId
   std::memset(&genConfig, 0, sizeof(genConfig));
   genConfig.sid = sid;
   genConfig.speed = playbackSpeed;
+  if (referenceAudio != nullptr && !referenceAudio->samples.empty()) {
+    genConfig.reference_audio = referenceAudio->samples.data();
+    genConfig.reference_audio_len = static_cast<int32_t>(referenceAudio->samples.size());
+    genConfig.reference_sample_rate =
+        referenceAudio->sampleRate > 0 ? referenceAudio->sampleRate : 16000;
+  }
 
   const SherpaOnnxGeneratedAudio* audio = SherpaOnnxOfflineTtsGenerateWithConfig(
       tts_.get(), text.c_str(), &genConfig, nullptr, nullptr);

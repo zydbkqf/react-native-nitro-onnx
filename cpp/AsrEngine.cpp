@@ -6,8 +6,8 @@
 #include "AudioFileReader.hpp"
 #include "sherpa-onnx/c-api/c-api.h"
 
+#include <cmath>
 #include <cstring>
-#include <fstream>
 #include <stdexcept>
 
 namespace margelo::nitro::onnx::speech {
@@ -33,14 +33,63 @@ std::string joinPath(const std::string& dir, const std::string& file) {
 ModelSingleton<const SherpaOnnxOfflineRecognizer> gOfflineRecognizerCache;
 ModelSingleton<const SherpaOnnxOnlineRecognizer> gOnlineRecognizerCache;
 
+float meanTokenConfidence(const float* logProbs, int32_t count) {
+  if (logProbs == nullptr || count <= 0) {
+    return 0.0f;
+  }
+  double sum = 0.0;
+  for (int32_t i = 0; i < count; ++i) {
+    sum += logProbs[i];
+  }
+  return static_cast<float>(std::exp(sum / count));
+}
+
+void fillTimestampsMs(AsrEngineResult& result, const float* timestamps, int32_t count) {
+  if (timestamps == nullptr || count <= 0) {
+    return;
+  }
+  result.timestamps.assign(timestamps, timestamps + count);
+  for (float& t : result.timestamps) {
+    t *= 1000.0f;
+  }
+  if (!result.timestamps.empty()) {
+    result.startMs = result.timestamps.front();
+  }
+}
+
+AsrEngineResult fromOfflineResult(const SherpaOnnxOfflineRecognizerResult& r, float endMs) {
+  AsrEngineResult result;
+  result.text = r.text ? r.text : "";
+  result.endMs = endMs;
+  result.score = meanTokenConfidence(r.ys_log_probs, r.count);
+  fillTimestampsMs(result, r.timestamps, r.count);
+  if (r.json) {
+    result.json = r.json;
+  }
+  return result;
+}
+
+AsrEngineResult fromOnlineResult(const SherpaOnnxOnlineRecognizerResult& r) {
+  AsrEngineResult result;
+  result.text = r.text ? r.text : "";
+  fillTimestampsMs(result, r.timestamps, r.count);
+  if (r.json) {
+    result.json = r.json;
+  }
+  return result;
+}
+
 }  // namespace
+
+std::string AsrEngineConfig::cacheSignature() const {
+  return modelDir + "|" + std::to_string(static_cast<int>(type)) + "|" + provider + "|" +
+         std::to_string(numThreads) + "|" + language + "|" + decodingMethod + "|" +
+         std::to_string(maxActivePaths) + "|" + (useItn ? "1" : "0");
+}
 
 // ------------------------------------------------------------------------------
 // Offline ASR
 // ------------------------------------------------------------------------------
-
-OfflineAsrEngine::OfflineAsrEngine(std::shared_ptr<ThreadPool> threadPool)
-    : threadPool_(std::move(threadPool)) {}
 
 OfflineAsrEngine::~OfflineAsrEngine() {
   unload();
@@ -48,10 +97,10 @@ OfflineAsrEngine::~OfflineAsrEngine() {
 
 void OfflineAsrEngine::load(const AsrEngineConfig& config) {
   unload();
+  std::lock_guard<std::mutex> lock(mutex_);
   config_ = config;
 
-  const std::string key = config_.modelDir + "|" + std::to_string(static_cast<int>(config_.type));
-  auto cached = gOfflineRecognizerCache.getOrCreate(key, [this](const std::string&) {
+  auto cached = gOfflineRecognizerCache.getOrCreate(config_.cacheSignature(), [this](const std::string&) {
     SherpaOnnxOfflineRecognizerConfig c;
     std::memset(&c, 0, sizeof(c));
 
@@ -70,6 +119,7 @@ void OfflineAsrEngine::load(const AsrEngineConfig& config) {
         c.model_config.whisper.decoder = whisperDecoder.c_str();
         c.model_config.whisper.language = config_.language.c_str();
         c.model_config.whisper.tail_paddings = 2;
+        c.model_config.model_type = "whisper";
         break;
       case AsrModelType::TRANSDUCER:
       case AsrModelType::ZIPFORMER:
@@ -79,18 +129,44 @@ void OfflineAsrEngine::load(const AsrEngineConfig& config) {
         c.model_config.transducer.joiner = joiner.c_str();
         break;
       case AsrModelType::PARAFORMER:
-      case AsrModelType::WENET:
-      case AsrModelType::TELESPEECH:
-      case AsrModelType::SENSE_VOICE:
         c.model_config.paraformer.model = model.c_str();
+        c.model_config.model_type = "paraformer";
+        break;
+      case AsrModelType::WENET:
+        c.model_config.wenet_ctc.model = model.c_str();
+        c.model_config.model_type = "wenet_ctc";
+        break;
+      case AsrModelType::TELESPEECH:
+        c.model_config.telespeech_ctc = model.c_str();
+        c.model_config.model_type = "telespeech_ctc";
+        break;
+      case AsrModelType::SENSE_VOICE:
+        c.model_config.sense_voice.model = model.c_str();
+        c.model_config.sense_voice.language = config_.language.c_str();
+        c.model_config.sense_voice.use_itn = config_.useItn ? 1 : 0;
+        c.model_config.model_type = "sense_voice";
         break;
       case AsrModelType::MOONSHINE:
+        // Moonshine layout: model=preprocessor, encoder=encoder,
+        // decoder=uncached_decoder (or merged_decoder when joiner is empty),
+        // joiner=cached_decoder.
+        c.model_config.moonshine.preprocessor = model.c_str();
+        c.model_config.moonshine.encoder = encoder.c_str();
+        if (joiner.empty()) {
+          c.model_config.moonshine.merged_decoder = decoder.c_str();
+        } else {
+          c.model_config.moonshine.uncached_decoder = decoder.c_str();
+          c.model_config.moonshine.cached_decoder = joiner.c_str();
+        }
+        c.model_config.model_type = "moonshine";
+        break;
       case AsrModelType::DOLPHIN:
+        c.model_config.dolphin.model = model.c_str();
+        c.model_config.model_type = "dolphin";
+        break;
       case AsrModelType::NEMO:
         c.model_config.nemo_ctc.model = model.c_str();
-        if (config_.type == AsrModelType::NEMO) {
-          c.model_config.model_type = "nemo";
-        }
+        c.model_config.model_type = "nemo";
         break;
     }
 
@@ -113,34 +189,34 @@ void OfflineAsrEngine::load(const AsrEngineConfig& config) {
 }
 
 bool OfflineAsrEngine::isLoaded() const {
+  std::lock_guard<std::mutex> lock(mutex_);
   return recognizer_ != nullptr;
 }
 
 AsrEngineResult OfflineAsrEngine::recognize(const std::vector<float>& samples) {
-  if (recognizer_ == nullptr) {
+  // Copy the shared_ptr under the lock, then decode without holding it so
+  // concurrent recognize() calls can share the same const recognizer.
+  std::shared_ptr<const SherpaOnnxOfflineRecognizer> recognizer;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    recognizer = recognizer_;
+  }
+  if (recognizer == nullptr) {
     throw std::runtime_error("Offline ASR not loaded");
   }
 
-  const SherpaOnnxOfflineStream* stream = SherpaOnnxCreateOfflineStream(recognizer_.get());
+  const SherpaOnnxOfflineStream* stream = SherpaOnnxCreateOfflineStream(recognizer.get());
   SherpaOnnxAcceptWaveformOffline(stream, 16000, samples.data(), static_cast<int32_t>(samples.size()));
-  SherpaOnnxDecodeOfflineStream(recognizer_.get(), stream);
+  SherpaOnnxDecodeOfflineStream(recognizer.get(), stream);
 
-  const char* json = SherpaOnnxGetOfflineStreamResultAsJson(stream);
+  const SherpaOnnxOfflineRecognizerResult* raw = SherpaOnnxGetOfflineStreamResult(stream);
   AsrEngineResult result;
-  result.json = json ? json : "";
-
-  // Parse the JSON to extract text. In a full implementation, use a JSON
-  // library to also populate timestamps and score.
-  const char* textKey = "\"text\":\"";
-  const char* textStart = std::strstr(result.json.c_str(), textKey);
-  if (textStart != nullptr) {
-    textStart += std::strlen(textKey);
-    const char* textEnd = std::strstr(textStart, "\"");
-    if (textEnd != nullptr) {
-      result.text = std::string(textStart, textEnd);
-    }
+  if (raw != nullptr) {
+    result = fromOfflineResult(*raw, samplesToMs(static_cast<int32_t>(samples.size())));
+    SherpaOnnxDestroyOfflineRecognizerResult(raw);
+  } else {
+    result.endMs = samplesToMs(static_cast<int32_t>(samples.size()));
   }
-  result.endMs = samplesToMs(static_cast<int32_t>(samples.size()));
 
   SherpaOnnxDestroyOfflineStream(stream);
   return result;
@@ -157,15 +233,13 @@ AsrEngineResult OfflineAsrEngine::recognizeFile(const std::string& path) {
 }
 
 void OfflineAsrEngine::unload() {
+  std::lock_guard<std::mutex> lock(mutex_);
   recognizer_.reset();
 }
 
 // ------------------------------------------------------------------------------
 // Streaming ASR
 // ------------------------------------------------------------------------------
-
-StreamingAsrEngine::StreamingAsrEngine(std::shared_ptr<ThreadPool> threadPool)
-    : threadPool_(std::move(threadPool)) {}
 
 StreamingAsrEngine::~StreamingAsrEngine() {
   unload();
@@ -175,10 +249,11 @@ void StreamingAsrEngine::load(
     const AsrEngineConfig& config,
     std::shared_ptr<StreamingAsrListener> listener) {
   unload();
+  std::lock_guard<std::mutex> lock(mutex_);
   config_ = config;
   listener_ = std::move(listener);
 
-  const std::string key = config_.modelDir + "|streaming|" + std::to_string(static_cast<int>(config_.type));
+  const std::string key = config_.cacheSignature() + "|streaming";
   auto cached = gOnlineRecognizerCache.getOrCreate(key, [this](const std::string&) {
     SherpaOnnxOnlineRecognizerConfig c;
     std::memset(&c, 0, sizeof(c));
@@ -197,7 +272,7 @@ void StreamingAsrEngine::load(
         c.model_config.transducer.joiner = joiner.c_str();
         break;
       default:
-        throw std::runtime_error("Streaming ASR does not support this model type in the scaffold");
+        throw std::runtime_error("Streaming ASR only supports transducer / zipformer / conformer models");
     }
 
     c.model_config.tokens = tokens.c_str();
@@ -222,48 +297,64 @@ void StreamingAsrEngine::load(
 }
 
 bool StreamingAsrEngine::isLoaded() const {
+  std::lock_guard<std::mutex> lock(mutex_);
   return recognizer_ != nullptr && stream_ != nullptr;
 }
 
 void StreamingAsrEngine::acceptWaveform(const std::vector<float>& samples) {
-  if (recognizer_ == nullptr || stream_ == nullptr) {
-    throw std::runtime_error("Streaming ASR not loaded");
-  }
-  SherpaOnnxOnlineStreamAcceptWaveform(stream_.get(), 16000, samples.data(), static_cast<int32_t>(samples.size()));
-
-  if (listener_ && SherpaOnnxIsOnlineStreamReady(recognizer_.get(), stream_.get())) {
-    SherpaOnnxDecodeOnlineStream(recognizer_.get(), stream_.get());
-    const char* json = SherpaOnnxGetOnlineStreamResultAsJson(recognizer_.get(), stream_.get());
-    if (json != nullptr) {
-      AsrEngineResult result;
-      result.json = json;
-      // TODO: parse text from JSON.
-      listener_->onPartialResult(result);
-      SherpaOnnxDestroyOnlineStreamResultJson(json);
+  std::shared_ptr<StreamingAsrListener> listener;
+  AsrEngineResult result;
+  bool hasResult = false;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (recognizer_ == nullptr || stream_ == nullptr) {
+      throw std::runtime_error("Streaming ASR not loaded");
     }
+    SherpaOnnxOnlineStreamAcceptWaveform(stream_.get(), 16000, samples.data(), static_cast<int32_t>(samples.size()));
+
+    if (SherpaOnnxIsOnlineStreamReady(recognizer_.get(), stream_.get())) {
+      SherpaOnnxDecodeOnlineStream(recognizer_.get(), stream_.get());
+      const SherpaOnnxOnlineRecognizerResult* raw =
+          SherpaOnnxGetOnlineStreamResult(recognizer_.get(), stream_.get());
+      if (raw != nullptr) {
+        result = fromOnlineResult(*raw);
+        SherpaOnnxDestroyOnlineRecognizerResult(raw);
+        hasResult = true;
+      }
+    }
+    listener = listener_.lock();
+  }
+  if (hasResult && listener) {
+    listener->onPartialResult(result);
   }
 }
 
 AsrEngineResult StreamingAsrEngine::finalize() {
-  if (recognizer_ == nullptr || stream_ == nullptr) {
-    throw std::runtime_error("Streaming ASR not loaded");
-  }
-  SherpaOnnxOnlineStreamInputFinished(stream_.get());
-  SherpaOnnxDecodeOnlineStream(recognizer_.get(), stream_.get());
-  const char* json = SherpaOnnxGetOnlineStreamResultAsJson(recognizer_.get(), stream_.get());
+  std::shared_ptr<StreamingAsrListener> listener;
   AsrEngineResult result;
-  if (json != nullptr) {
-    result.json = json;
-    // TODO: parse text from JSON.
-    SherpaOnnxDestroyOnlineStreamResultJson(json);
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (recognizer_ == nullptr || stream_ == nullptr) {
+      throw std::runtime_error("Streaming ASR not loaded");
+    }
+    SherpaOnnxOnlineStreamInputFinished(stream_.get());
+    SherpaOnnxDecodeOnlineStream(recognizer_.get(), stream_.get());
+    const SherpaOnnxOnlineRecognizerResult* raw =
+        SherpaOnnxGetOnlineStreamResult(recognizer_.get(), stream_.get());
+    if (raw != nullptr) {
+      result = fromOnlineResult(*raw);
+      SherpaOnnxDestroyOnlineRecognizerResult(raw);
+    }
+    listener = listener_.lock();
   }
-  if (listener_) {
-    listener_->onFinalResult(result);
+  if (listener) {
+    listener->onFinalResult(result);
   }
   return result;
 }
 
 void StreamingAsrEngine::reset() {
+  std::lock_guard<std::mutex> lock(mutex_);
   if (recognizer_ != nullptr) {
     stream_ = std::shared_ptr<const SherpaOnnxOnlineStream>(
         SherpaOnnxCreateOnlineStream(recognizer_.get()),
@@ -272,6 +363,7 @@ void StreamingAsrEngine::reset() {
 }
 
 void StreamingAsrEngine::unload() {
+  std::lock_guard<std::mutex> lock(mutex_);
   stream_.reset();
   recognizer_.reset();
   listener_.reset();

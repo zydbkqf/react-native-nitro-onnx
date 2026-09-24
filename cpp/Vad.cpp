@@ -32,8 +32,7 @@ std::vector<VadSegment> toVadSegments(const std::vector<VadEngineSegment>& nativ
 
 }  // namespace
 
-Vad::Vad(std::shared_ptr<ThreadPool> threadPool)
-    : HybridObject(TAG), engine_(std::move(threadPool)) {}
+Vad::Vad() : HybridObject(TAG) {}
 
 Vad::~Vad() {
   engine_.dispose();
@@ -41,12 +40,12 @@ Vad::~Vad() {
 
 std::shared_ptr<Promise<void>> Vad::initialize(const VadConfig& config) {
   currentConfig_ = config;
-  return Promise<void>::async([this, config]() {
+  return Promise<void>::async([self = shared_cast<Vad>(), config]() {
     // Use the bundled silero_vad.onnx when no custom path is provided.
     const std::string& resDir = getResourceDir();
     const std::string modelPath = config.modelPath.value_or(
         resDir.empty() ? "silero_vad.onnx" : resDir + "/silero_vad.onnx");
-    engine_.initialize(
+    self->engine_.initialize(
         {
             .modelPath = modelPath,
             .threshold = static_cast<float>(config.threshold.value_or(0.5)),
@@ -55,7 +54,7 @@ std::shared_ptr<Promise<void>> Vad::initialize(const VadConfig& config) {
             .preBufferMs = static_cast<int32_t>(config.preBufferMs.value_or(300.0)),
             .debug = config.debug.value_or(false),
         },
-        shared_cast<Vad>());
+        self);
   });
 }
 
@@ -64,19 +63,20 @@ bool Vad::isInitialized() {
 }
 
 std::shared_ptr<Promise<void>> Vad::process(const std::shared_ptr<ArrayBuffer>& samples) {
-  return Promise<void>::async([this, samples]() {
-    const auto data = samples->data();
-    auto floatSamples = bytesToFloatVector(data, samples->size());
-    engine_.acceptWaveform(floatSamples);
+  return Promise<void>::async([self = shared_cast<Vad>(), samples]() {
+    auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
+    self->engine_.acceptWaveform(std::move(floatSamples));
   });
 }
 
 std::shared_ptr<Promise<std::vector<VadSegment>>> Vad::pullSegments() {
-  return Promise<std::vector<VadSegment>>::async([this]() { return toVadSegments(engine_.pullSegments()); });
+  return Promise<std::vector<VadSegment>>::async([self = shared_cast<Vad>()]() {
+    return toVadSegments(self->engine_.pullSegments());
+  });
 }
 
 std::shared_ptr<Promise<void>> Vad::reset() {
-  return Promise<void>::async([this]() { engine_.reset(); });
+  return Promise<void>::async([self = shared_cast<Vad>()]() { self->engine_.reset(); });
 }
 
 std::optional<std::function<void(const VadSegment& /* segment */)>> Vad::getOnSpeechStart() {

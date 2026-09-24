@@ -17,7 +17,7 @@ class OfflineAsr : public HybridOfflineAsrSpec {
  public:
   static constexpr auto TAG = "OfflineAsr";
 
-  explicit OfflineAsr(std::shared_ptr<ThreadPool> threadPool);
+  OfflineAsr();
   ~OfflineAsr() override;
 
   std::shared_ptr<Promise<void>> load(const AsrModelConfig& config) override;

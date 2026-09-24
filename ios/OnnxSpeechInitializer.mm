@@ -1,7 +1,7 @@
 // ------------------------------------------------------------------------------
 // OnnxSpeechInitializer.mm
 // ------------------------------------------------------------------------------
-// Sets up resource and cache directories for the C++ layer on iOS.
+// Sets up resource and document directories for the C++ layer on iOS.
 // Runs at +load time so paths are available before any HybridObject is created.
 // ------------------------------------------------------------------------------
 #import <Foundation/Foundation.h>
@@ -26,12 +26,24 @@
     margelo::nitro::onnx::speech::setResourceDir([[mainBundle resourcePath] UTF8String]);
   }
 
-  NSArray<NSString*>* cachePaths = NSSearchPathForDirectoriesInDomains(
-      NSCachesDirectory, NSUserDomainMask, YES);
-  NSString* cacheDir = cachePaths.firstObject;
-  if (cacheDir) {
-    margelo::nitro::onnx::speech::setCacheDir([cacheDir UTF8String]);
+  // Application Support (not Documents): speaker embeddings are derived data
+  // and must not be backed up to iCloud.
+  NSArray<NSString*>* supportPaths = NSSearchPathForDirectoriesInDomains(
+      NSApplicationSupportDirectory, NSUserDomainMask, YES);
+  NSString* documentDir = supportPaths.firstObject;
+  if (documentDir == nil) {
+    return;
   }
+
+  NSError* error = nil;
+  [[NSFileManager defaultManager] createDirectoryAtPath:documentDir
+                            withIntermediateDirectories:YES
+                                             attributes:nil
+                                                  error:&error];
+  NSURL* dirURL = [NSURL fileURLWithPath:documentDir isDirectory:YES];
+  [dirURL setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:nil];
+
+  margelo::nitro::onnx::speech::setDocumentDir([documentDir UTF8String]);
 }
 
 @end

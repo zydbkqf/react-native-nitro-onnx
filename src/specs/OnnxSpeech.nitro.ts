@@ -118,7 +118,12 @@ export interface AsrModelConfig {
   encoder?: string;
   decoder?: string;
   joiner?: string;
-  /** Paraformer / Wenet / Telespeech / SenseVoice: single model file. */
+  /**
+   * Single-model families (Paraformer / Wenet / Telespeech / Dolphin / NeMo / SenseVoice).
+   * Moonshine: `model` is preprocessor.onnx, `encoder` is encoder.onnx,
+   * `decoder` is uncached_decoder.onnx (or merged_decoder.onnx when `joiner` is unset),
+   * `joiner` is cached_decoder.onnx.
+   */
   model?: string;
   /** NeMo config file (.yaml). */
   config?: string;
@@ -136,7 +141,7 @@ export interface AsrModelConfig {
   debug?: boolean;
   /**
    * Execution provider for ONNX Runtime.
-   * Default: "qnn" on Android (Qualcomm NPU, unsupported ops fall back to CPU),
+   * Default: "nnapi" on Android (or "qnn" when built with -DQNN_ROOT),
    *          "coreml" on iOS (Apple Neural Engine, unsupported ops fall back to CPU).
    * Pass "cpu" explicitly to disable NPU acceleration.
    */
@@ -258,9 +263,8 @@ export interface TtsModelConfig {
   debug?: boolean;
   /**
    * Execution provider for ONNX Runtime.
-   * Default: "qnn" on Android (Qualcomm NPU, unsupported ops fall back to CPU),
-   *          "coreml" on iOS (Apple Neural Engine, unsupported ops fall back to CPU).
-   * Pass "cpu" explicitly to disable NPU acceleration.
+   * Default: "cpu" on Android / Linux, "coreml" on iOS.
+   * Pass a provider explicitly to enable NPU acceleration.
    */
   provider?: string;
 }
@@ -279,7 +283,13 @@ export interface Tts extends HybridObject<SpeechPlatforms> {
   isLoaded(): boolean;
   /** Synthesize text into audio on a background thread. Optional speed override. */
   synthesize(text: string, speed?: number): Promise<TtsResult>;
-  /** Synthesize with a cloned speaker embedding (reference-audio cloning). */
+  /**
+   * Synthesize with a speaker reference.
+   * `speakerId` is either a numeric model speaker index ("0", "1", ... for
+   * Kokoro/VITS multi-speaker) or a registered speaker ID from
+   * `registerSpeaker` / `registerSpeakerFromFile` (zero-shot models such as
+   * Pocket require the reference audio stored by `registerSpeakerFromFile`).
+   */
   synthesizeWithSpeaker(text: string, speakerId: string, speed?: number): Promise<TtsResult>;
   /** Save TTS result as a WAV file at the given path. */
   saveWav(result: TtsResult, path: string): Promise<void>;
@@ -313,9 +323,16 @@ export interface SpeakerManager extends HybridObject<SpeechPlatforms> {
   isLoaded(): boolean;
   /** Compute an embedding from reference 16 kHz mono f32 PCM audio. */
   computeEmbedding(samples: ArrayBuffer): Promise<ArrayBuffer>;
-  /** Register a speaker embedding for later TTS use. */
+  /**
+   * Register a speaker embedding for later TTS use.
+   * Note: embedding-only records cannot drive zero-shot TTS; use
+   * `registerSpeakerFromFile` when you need voice cloning with Pocket.
+   */
   registerSpeaker(id: string, name: string, embedding: ArrayBuffer): Promise<RegisteredSpeaker>;
-  /** Register from a reference audio file. */
+  /**
+   * Register from a reference audio file. Stores both the speaker embedding
+   * and the reference audio required by zero-shot TTS models.
+   */
   registerSpeakerFromFile(id: string, name: string, path: string): Promise<RegisteredSpeaker>;
   /** List registered speakers. */
   listSpeakers(): Promise<RegisteredSpeaker[]>;

@@ -9,7 +9,22 @@ A React Native [Nitro Module](https://nitro.margelo.com) that wraps [sherpa-onnx
 
 All audio I/O uses zero-copy `ArrayBuffer` with **16 kHz mono f32 PCM**.
 
-> **Note:** This repository is a structural scaffold. Every model family has a typed config slot and a singleton-backed engine. Only one model per category is fully wired in the reference implementation; the remaining model types map to the correct sherpa-onnx C API fields and are ready for incremental completion.
+> **Note:** Every ASR / TTS model type is wired to the corresponding sherpa-onnx C API config segment. Coverage is complete at the binding layer; per-model quality still depends on the downloaded sherpa-onnx model files.
+
+> 📢 **Important note about scope & package name**
+>
+> At the present time, this binding is built exclusively for **speech‑related workloads via sherpa‑onnx**:
+> ASR, TTS, VAD and speaker embedding only.
+> It is **NOT a general‑purpose ONNX Runtime binding** for arbitrary ONNX models (YOLO, LLM etc).
+>
+> The package name `react-native-nitro‑onnx` may appear to imply general‑purpose ONNX support,
+> but that is not the current goal of this repository.
+>
+> If you are an open‑source developer and would like to take over this npm package name
+> to build a truly general‑purpose Nitro ONNX binding supporting LLM / CV workloads,
+> feel free to open a GitHub issue to contact me for discussion about npm ownership transfer.
+>
+> For now this repo will continue focusing on the speech‑only sherpa‑onnx use‑case.
 
 ## Table of Contents
 
@@ -34,12 +49,14 @@ All audio I/O uses zero-copy `ArrayBuffer` with **16 kHz mono f32 PCM**.
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                         JS / TS                             │
-│  getOnnxSpeech() → createVad() / createTts() / createAsr()  │
+│  getOnnxSpeech() → createVad() / createTts() /              │
+│                    createOfflineAsr() / createStreamingAsr() │
 └──────────────────────┬──────────────────────────────────────┘
 │  react-native-nitro-modules (zero-copy ArrayBuffer)
 ┌──────────────────────┴──────────────────────────────────────┐
 │                         C++                                 │
-│  OnnxSpeechImpl → VadEngine / AsrEngine / TtsEngine / ...   │
+│  NitroOnnxSpeech → Vad / OfflineAsr / StreamingAsr / Tts /  │
+│                    SpeakerManager                           │
 │  ModelSingleton caches heavy recognizer / TTS instances     │
 └──────────────────────┬──────────────────────────────────────┘
 │  sherpa-onnx C API
@@ -50,10 +67,11 @@ All audio I/O uses zero-copy `ArrayBuffer` with **16 kHz mono f32 PCM**.
 
 Key design decisions:
 
-- **Singleton preloading:** `OfflineAsrEngine`, `StreamingAsrEngine`, `TtsEngine` and `SpeakerEngine` use `ModelSingleton` keyed by model directory and type. Loading the same model twice returns the same native instance.
-- **Background inference:** Every heavy operation runs on a fixed `ThreadPool` so the JS thread never blocks.
+- **Singleton preloading:** `OfflineAsrEngine`, `StreamingAsrEngine`, `TtsEngine` and `SpeakerEngine` use `ModelSingleton`. The cache key covers model dir, type, provider, thread count and other identity-relevant options, so loading the same configuration twice returns the same native instance while a changed option creates a new one.
+- **Background inference:** Every heavy operation runs on a background task pool provided by `react-native-nitro-modules` (`Promise::async`) so the JS thread never blocks. VAD additionally uses a dedicated processor thread for streaming segmentation.
 - **External model download:** The module does not bundle an internal downloader. Download model files in the background with a library such as [`@kesha-antonov/react-native-background-downloader`](https://github.com/kesha-antonov/react-native-background-downloader), then pass the local file paths to `load()` / `initialize()`.
 - **Zero-copy audio:** `ArrayBuffer` is the only audio transport format; samples are expected to be 16 kHz mono little-endian f32 PCM.
+- **Storage:** Bundled assets (e.g. `silero_vad.onnx`) live in the platform resource dir. Registered speakers are written under the app document dir (`Application Support` on iOS, excluded from iCloud backup; `filesDir` on Android) at `<documentDir>/speakers/`.
 
 ## Supported Models
 
@@ -68,9 +86,9 @@ Key design decisions:
 | Conformer | `conformer` | attention-convolution | Streaming accuracy | Yes | Transducer triple |
 | Wenet | `wenet` | U2++ / CTC | Chinese industrial | No | Single `model.onnx` |
 | Telespeech | `telespeech` | telephony ASR | 8 kHz telco audio | No | Single `model.onnx` |
-| Moonshine | `moonshine` | lightweight | Edge devices | No | Single `model.onnx` |
+| Moonshine | `moonshine` | lightweight encoder-decoder | Edge devices | No | `preprocessor.onnx` + `encoder.onnx` + decoder pair (see below) |
 | Dolphin | `dolphin` | CTC | English | No | Single `model.onnx` |
-| NeMo | `nemo` | CTC / RNNT | NVIDIA NeMo exported models | No | `model.onnx` + config |
+| NeMo | `nemo` | CTC | NVIDIA NeMo exported models | No | `model.onnx` + tokens |
 | SenseVoice | `sense_voice` | multilingual | Alibaba SenseVoice | No | Single `model.onnx` |
 
 ### TTS
@@ -80,8 +98,8 @@ Key design decisions:
 | Kokoro | `kokoro` | internal | High, multi-speaker | Medium | Needs `model.onnx`, `voices.bin`, `tokens.txt`, `lexicon.txt` |
 | VITS | `vits` | internal | High quality | Medium | Needs `model.onnx`, `tokens.txt`, optional lexicon |
 | Matcha | `matcha` | external (e.g. Hifigan) | Fast, natural | Fast | Needs acoustic model + vocoder ONNX |
-| Pocket | `pocket` | internal | Lightweight zero-shot | Very fast | Needs `model.onnx` + config JSON |
-| ZipVoice | `zipvoice` | internal | Placeholder type | - | Maps to VITS-like config until sherpa-onnx exposes dedicated ZipVoice support |
+| Pocket | `pocket` | internal | Lightweight zero-shot | Very fast | Multi-file (lm / encoder / decoder, see below) |
+| ZipVoice | `zipvoice` | internal | Dedicated encoder/decoder | Fast | Needs `zipvoiceEncoder`, `zipvoiceDecoder`, vocoder, tokens |
 
 ### VAD
 
@@ -119,7 +137,7 @@ transducer/
   tokens.txt
 ```
 
-### Paraformer / Wenet / Telespeech / Moonshine / Dolphin / SenseVoice (offline ASR)
+### Paraformer / Telespeech / Dolphin / SenseVoice (offline ASR)
 
 ```
 model/
@@ -127,12 +145,32 @@ model/
   tokens.txt
 ```
 
+### Wenet (offline ASR)
+
+```
+wenet/
+  model.onnx
+  tokens.txt
+```
+
+### Moonshine (offline ASR)
+
+```
+moonshine/
+  preprocessor.onnx       → model
+  encoder.onnx            → encoder
+  uncached_decoder.onnx   → decoder
+  cached_decoder.onnx     → joiner
+  tokens.txt
+```
+
+Alternatively, pass `merged_decoder.onnx` as `decoder` and leave `joiner` unset.
+
 ### NeMo (offline ASR)
 
 ```
 nemo/
   model.onnx
-  config.yaml
   tokens.txt
 ```
 
@@ -169,8 +207,27 @@ matcha/
 
 ```
 pocket/
-  model.onnx
-  config.json
+  lm_main.onnx
+  lm_flow.onnx
+  encoder.onnx
+  decoder.onnx
+  text_conditioner.onnx
+  vocab.json
+  token_scores.json
+```
+
+Map these to `lmMain`, `lmFlow`, `pocketEncoder`, `pocketDecoder`, `textConditioner`, `vocabJson`, `tokenScoresJson`.
+
+### ZipVoice (TTS)
+
+```
+zipvoice/
+  encoder.onnx      → zipvoiceEncoder
+  decoder.onnx      → zipvoiceDecoder
+  vocoder.onnx      → vocoder
+  tokens.txt
+  lexicon.txt
+  espeak-ng-data/   (optional)
 ```
 
 ### Silero VAD
@@ -197,7 +254,7 @@ Build requirements:
 - React Native >= 0.78
 - react-native-nitro-modules >= 0.35.8
 - Xcode 15 / Android NDK 26
-- The `prepare-sherpa-onnx.js` postinstall script downloads the sherpa-onnx
+- The `postinstall` script runs `generate-version.js` (keeps `cpp/Version.hpp` in sync with `package.json`) and `prepare-sherpa-onnx.js`, which downloads the sherpa-onnx
   prebuilt tree (host static libraries, Android shared libraries, iOS
   xcframework, and C API headers) into `cpp/sherpa-onnx-prebuilt`.
 
@@ -306,10 +363,11 @@ await tts.saveWav(audio, "/path/to/output.wav");
 
 ## Execution Providers
 
-By default, the module automatically selects the best execution provider for your platform:
+By default, the module selects a platform-appropriate execution provider:
 
-- **Android:** `qnn` — uses Qualcomm NPU via QNN; unsupported operators fall back to NNAPI/CPU.
-- **iOS:** `coreml` — uses Apple Neural Engine via CoreML; unsupported operators fall back to CPU.
+- **Android (no QNN SDK):** `nnapi` — NNAPI with CPU fallback.
+- **Android (built with `QNN_ROOT`):** `qnn` — Qualcomm HTP via QNN; unsupported operators fall back to CPU.
+- **iOS:** `coreml` — Apple Neural Engine via CoreML; unsupported operators fall back to CPU.
 
 To disable NPU acceleration and force CPU-only inference, pass `provider: "cpu"` explicitly:
 
@@ -333,7 +391,7 @@ const soc = speech.getQualcommSoc();
 
 if (soc) {
   console.log(`Qualcomm SoC: ${soc}`);
-  // QNN is the default provider on Android — no need to specify it
+  // Use QNN when the app was built with -DQNN_ROOT=...; otherwise NNAPI.
   await asr.load({ type: "whisper", /* ... */ });
 } else {
   await asr.load({ type: "whisper", /* ... */ provider: "cpu" });
@@ -344,15 +402,15 @@ if (soc) {
 
 ### Building with QNN Support
 
-QNN is enabled by default on Android (the prebuilt sherpa-onnx libraries include QNN support). You do **not** need `QNN_ROOT` for normal usage.
+QNN is **opt-in**. Without `QNN_ROOT`, Android builds do not define `SHERPA_ONNX_ENABLE_QNN`, the default provider is `nnapi`, and no QNN runtime libraries are linked.
 
-`QNN_ROOT` is **only** required when you need to bundle additional QNN Binary backend libraries from the Qualcomm AI Runtime (QAIRT) SDK. If you don't need the binary backend, simply omit `QNN_ROOT` — the default QNN execution provider works out of the box.
+`QNN_ROOT` is required to enable the QNN execution provider and bundle QNN Binary backend libraries from the Qualcomm AI Runtime (QAIRT) SDK.
 
-**Download QAIRT SDK (only if you need QNN Binary):**
+**Download QAIRT SDK:**
 
 Visit [Qualcomm Software Center](https://softwarecenter.qualcomm.com/api/download/software/sdks/Qualcomm_AI_Runtime_Community/All/2.40.0.251030/v2.40.0.251030.zip) to download the SDK (v2.40.0).
 
-**Specify QNN_ROOT (optional):**
+**Specify QNN_ROOT:**
 
 ```bash
 # Via environment variable
@@ -362,7 +420,7 @@ QNN_ROOT=/path/to/qnn/sdk ./gradlew assembleRelease
 QNN_ROOT=/path/to/qnn/sdk
 ```
 
-When `QNN_ROOT` is set, the build system will link the QNN core library (`QnnHtp`) and all available HTP version libraries (`QnnHtpV73Stub`/`HtpV73`, `QnnHtpV75Stub`/`HtpV75`, etc.) from the SDK.
+When `QNN_ROOT` is set, the build defines `SHERPA_ONNX_ENABLE_QNN` (so the default provider becomes `qnn`) and links the QNN core library (`QnnHtp`) plus all available HTP version libraries (`QnnHtpV73Stub`/`HtpV73`, `QnnHtpV75Stub`/`HtpV75`, etc.) from the SDK.
 
 > **Note:** QNN support is Android-only. On iOS, CoreML is used by default.
 
@@ -382,27 +440,37 @@ The result is that no speech frames are lost between detection and JS delivery.
 
 ## Voice Cloning
 
+Registered speakers are stored under the platform document directory (`Application Support` on iOS — excluded from iCloud backup — and `filesDir` on Android) as `<documentDir>/speakers/<id>.bin`. The record holds the embedding and, for `registerSpeakerFromFile`, the reference audio used by zero-shot TTS.
+
 Two voice-cloning paths are exposed:
 
-1. **Speaker embedding registration** - compute an embedding from reference audio, store it locally, and pass the speaker ID to TTS models that accept a speaker index (e.g. Kokoro multi-speaker, VITS multi-speaker).
-2. **Reference-audio TTS** - models that support prompt-based or zero-shot synthesis (e.g. Pocket) receive the reference embedding directly during synthesis.
+1. **Speaker embedding registration** — compute an embedding from reference audio, store it locally. Embeddings are kept for identity / search; they are not a model speaker index.
+2. **Reference-audio TTS** — models that support prompt-based or zero-shot synthesis (e.g. Pocket) receive stored reference audio during synthesis. Register with `registerSpeakerFromFile` so the reference audio is kept alongside the embedding.
+
+`synthesizeWithSpeaker` accepts **two kinds of `speakerId`**:
+
+| `speakerId` | Meaning | Typical models |
+|---|---|---|
+| Numeric string, e.g. `"0"` | Model-internal speaker index | Kokoro / VITS multi-speaker |
+| Registered ID, e.g. `"speaker-1"` | Voice-cloning record (needs reference audio) | Pocket (zero-shot) |
 
 ```typescript
 const speaker = speech.createSpeakerManager();
 await speaker.load({ modelDir: "/path/to/speaker", model: "model.onnx", numThreads: 4 });
 
-const embedding = await speaker.computeEmbedding(referenceAudio);
-const registered = await speaker.registerSpeaker("speaker-1", "Alice", embedding);
-
-// Use the registered speaker with TTS (optional speed override)
+// Zero-shot clone (Pocket): keep the reference audio for synthesis
+const registered = await speaker.registerSpeakerFromFile("speaker-1", "Alice", "/path/to/alice.wav");
 const cloned = await tts.synthesizeWithSpeaker("Hello, I am Alice.", registered.id, 1.1);
+
+// Multi-speaker model index (Kokoro / VITS)
+const voice0 = await tts.synthesizeWithSpeaker("Hello there.", "0");
 ```
 
 ## Threading
 
-Every native inference task runs on a background thread pool:
+Every native inference task runs on a background thread pool (`Promise::async` from react-native-nitro-modules):
 
-- VAD processing
+- VAD processing (plus a dedicated processor thread for streaming segmentation)
 - Offline / streaming ASR decode
 - TTS synthesis
 - Speaker embedding extraction
@@ -427,6 +495,8 @@ The C++ test suite covers:
 
 - Audio sample / millisecond conversions
 - Float vector / byte buffer round-trip
+- Speaker record write/read round-trip (embedding + reference audio)
+- `tryParseSpeakerIndex` edge cases (empty, negative, non-numeric, oversized)
 
 ## License
 

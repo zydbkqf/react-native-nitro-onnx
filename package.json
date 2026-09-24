@@ -10,8 +10,9 @@
   "types": "lib/index.d.ts",
   "source": "src/index.ts",
   "scripts": {
-    "postinstall": "node scripts/prepare-sherpa-onnx.js",
-    "prespecs": "node scripts/prepare-sherpa-onnx.js",
+    "postinstall": "node scripts/generate-version.js && node scripts/prepare-sherpa-onnx.js",
+    "prespecs": "node scripts/generate-version.js && node scripts/prepare-sherpa-onnx.js",
+    "version": "node scripts/generate-version.js",
     "build": "tsc",
     "specs": "nitrogen",
     "test": "jest",

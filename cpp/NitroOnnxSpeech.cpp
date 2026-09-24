@@ -9,6 +9,7 @@
 #include "StreamingAsr.hpp"
 #include "Tts.hpp"
 #include "Vad.hpp"
+#include "Version.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -20,34 +21,32 @@
 namespace margelo::nitro::onnx::speech {
 
 NitroOnnxSpeech::NitroOnnxSpeech()
-    : HybridObject(TAG),
-      threadPool_(std::make_shared<ThreadPool>()),
-      cacheDir_(getCacheDir()) {}
+    : HybridObject(TAG) {}
 
 NitroOnnxSpeech::~NitroOnnxSpeech() = default;
 
 std::shared_ptr<HybridVadSpec> NitroOnnxSpeech::createVad() {
-  return std::make_shared<Vad>(threadPool_);
+  return std::make_shared<Vad>();
 }
 
 std::shared_ptr<HybridOfflineAsrSpec> NitroOnnxSpeech::createOfflineAsr() {
-  return std::make_shared<OfflineAsr>(threadPool_);
+  return std::make_shared<OfflineAsr>();
 }
 
 std::shared_ptr<HybridStreamingAsrSpec> NitroOnnxSpeech::createStreamingAsr() {
-  return std::make_shared<StreamingAsr>(threadPool_);
+  return std::make_shared<StreamingAsr>();
 }
 
 std::shared_ptr<HybridTtsSpec> NitroOnnxSpeech::createTts() {
-  return std::make_shared<Tts>(threadPool_);
+  return std::make_shared<Tts>();
 }
 
 std::shared_ptr<HybridSpeakerManagerSpec> NitroOnnxSpeech::createSpeakerManager() {
-  return std::make_shared<SpeakerManager>(threadPool_, cacheDir_);
+  return std::make_shared<SpeakerManager>();
 }
 
 std::string NitroOnnxSpeech::getVersion() {
-  return "0.1.0";
+  return NITRO_ONNX_SPEECH_VERSION;
 }
 
 std::string NitroOnnxSpeech::getQualcommSoc() {

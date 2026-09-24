@@ -3,6 +3,7 @@
 // ------------------------------------------------------------------------------
 #include "AudioFileReader.hpp"
 
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -11,6 +12,9 @@
 namespace margelo::nitro::onnx::speech {
 
 namespace {
+
+static_assert(std::endian::native == std::endian::little,
+              "WAV reader assumes little-endian targets");
 
 constexpr int32_t kTargetSampleRate = 16000;
 

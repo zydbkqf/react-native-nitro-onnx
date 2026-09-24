@@ -4,12 +4,13 @@
 #include "SpeakerEngine.hpp"
 
 #include "AudioFileReader.hpp"
+#include "ResourceDir.hpp"
+#include "SpeakerRecord.hpp"
 #include "sherpa-onnx/c-api/c-api.h"
 
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <sstream>
 #include <stdexcept>
 
 namespace margelo::nitro::onnx::speech {
@@ -36,8 +37,9 @@ ModelSingleton<const SherpaOnnxSpeakerEmbeddingExtractor> gExtractorCache;
 
 }  // namespace
 
-SpeakerEngine::SpeakerEngine(std::shared_ptr<ThreadPool> threadPool, std::string cacheDir)
-    : threadPool_(std::move(threadPool)), cacheDir_(std::move(cacheDir)) {}
+std::string speakerFilePath(const std::string& id) {
+  return joinPath(joinPath(getDocumentDir(), "speakers"), id + ".bin");
+}
 
 SpeakerEngine::~SpeakerEngine() {
   unload();
@@ -47,8 +49,7 @@ void SpeakerEngine::load(const SpeakerEngineConfig& config) {
   unload();
   config_ = config;
 
-  const std::string key = config_.modelDir + "|speaker";
-  auto cached = gExtractorCache.getOrCreate(key, [this](const std::string&) {
+  auto cached = gExtractorCache.getOrCreate(config_.cacheSignature(), [this](const std::string&) {
     SherpaOnnxSpeakerEmbeddingExtractorConfig c;
     std::memset(&c, 0, sizeof(c));
 
@@ -98,18 +99,19 @@ SpeakerEngineRegisteredSpeaker SpeakerEngine::registerSpeaker(
     const std::string& id,
     const std::string& name,
     const std::vector<float>& embedding) {
-  const std::string speakersDir = joinPath(cacheDir_, "speakers");
-  std::filesystem::create_directories(speakersDir);
-  const std::string path = joinPath(speakersDir, id + ".bin");
-  std::ofstream file(path, std::ios::binary);
-  if (!file) {
-    throw std::runtime_error("Failed to write speaker embedding: " + path);
+  if (id.empty()) {
+    throw std::invalid_argument("Speaker id must not be empty");
   }
-  const auto nameLen = static_cast<uint32_t>(name.size());
-  file.write(reinterpret_cast<const char*>(&nameLen), sizeof(nameLen));
-  file.write(name.data(), name.size());
-  file.write(reinterpret_cast<const char*>(embedding.data()), embedding.size() * sizeof(float));
-  return {id, name, path};
+  const std::string speakersDir = joinPath(getDocumentDir(), "speakers");
+  std::filesystem::create_directories(speakersDir);
+  const std::string path = speakerFilePath(id);
+  writeSpeakerRecord(path, name, embedding, nullptr, 0);
+  SpeakerEngineRegisteredSpeaker result;
+  result.id = id;
+  result.name = name;
+  result.embeddingPath = path;
+  result.embedding = embedding;
+  return result;
 }
 
 SpeakerEngineRegisteredSpeaker SpeakerEngine::registerSpeakerFromFile(
@@ -126,11 +128,24 @@ SpeakerEngineRegisteredSpeaker SpeakerEngine::registerSpeakerFromFile(
     samples = readRawPcmFile(path);
   }
   auto embedding = computeEmbedding(samples);
-  return registerSpeaker(id, name, embedding);
+
+  const std::string speakersDir = joinPath(getDocumentDir(), "speakers");
+  std::filesystem::create_directories(speakersDir);
+  const std::string outPath = speakerFilePath(id);
+  writeSpeakerRecord(outPath, name, embedding, &samples, 16000);
+
+  SpeakerEngineRegisteredSpeaker result;
+  result.id = id;
+  result.name = name;
+  result.embeddingPath = outPath;
+  result.embedding = std::move(embedding);
+  result.referenceAudio = std::move(samples);
+  result.referenceSampleRate = 16000;
+  return result;
 }
 
 std::vector<SpeakerEngineRegisteredSpeaker> SpeakerEngine::listSpeakers() {
-  const std::string speakersDir = joinPath(cacheDir_, "speakers");
+  const std::string speakersDir = joinPath(getDocumentDir(), "speakers");
   std::vector<SpeakerEngineRegisteredSpeaker> result;
   if (!std::filesystem::exists(speakersDir)) {
     return result;
@@ -140,22 +155,17 @@ std::vector<SpeakerEngineRegisteredSpeaker> SpeakerEngine::listSpeakers() {
     const auto& filePath = entry.path();
     if (filePath.extension() != ".bin") continue;
     const std::string id = filePath.stem().string();
-    std::ifstream file(filePath, std::ios::binary);
-    if (!file) continue;
-    uint32_t nameLen = 0;
-    file.read(reinterpret_cast<char*>(&nameLen), sizeof(nameLen));
-    std::string name;
-    if (nameLen > 0 && nameLen < 1024) {
-      name.resize(nameLen);
-      file.read(name.data(), nameLen);
+    try {
+      result.push_back(readSpeakerRecord(id, filePath.string()));
+    } catch (...) {
+      // Skip unreadable / legacy records.
     }
-    result.push_back({id, name, filePath.string()});
   }
   return result;
 }
 
 void SpeakerEngine::removeSpeaker(const std::string& id) {
-  const std::string path = joinPath(cacheDir_, "speakers/" + id + ".bin");
+  const std::string path = speakerFilePath(id);
   std::error_code ec;
   std::filesystem::remove(path, ec);
   if (ec) {
