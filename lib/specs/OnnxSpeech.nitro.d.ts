@@ -103,6 +103,19 @@ export interface AsrModelConfig {
     language?: string;
     /** SenseVoice: whether to use itn. */
     useItn?: boolean;
+    /**
+     * Path to a hotwords file (one hotword per line, BPE tokens separated by
+     * spaces). Applies to both offline and streaming recognizers.
+     * Requires `decodingMethod: "modified_beam_search"`.
+     */
+    hotwordsFile?: string;
+    /**
+     * In-memory hotwords text in the same format as `hotwordsFile`.
+     * When set, overrides `hotwordsFile`.
+     */
+    hotwordsBuf?: string;
+    /** Bonus score added to each hotword token during decoding. Default: 1.5. */
+    hotwordsScore?: number;
     /** Enable sherpa-onnx debug logging for this model. Default: false. */
     debug?: boolean;
     /**
@@ -140,6 +153,13 @@ export interface OfflineAsr extends HybridObject<SpeechPlatforms> {
     recognize(samples: ArrayBuffer): Promise<AsrResult>;
     /** Recognize from a file path (native side reads the audio). */
     recognizeFile(path: string): Promise<AsrResult>;
+    /**
+     * Recognize a buffer with per-utterance hotwords.
+     * Uses `SherpaOnnxCreateOfflineStreamWithHotwords` under the hood, so the
+     * recognizer must be created with `decodingMethod: "modified_beam_search"`.
+     * `hotwords` is a space-separated list of BPE tokens, e.g. "▁HELLO ▁WORLD".
+     */
+    recognizeWithHotwords(samples: ArrayBuffer, hotwords: string): Promise<AsrResult>;
     unload(): Promise<void>;
 }
 /** Streaming ASR hybrid object. */
@@ -156,6 +176,14 @@ export interface StreamingAsr extends HybridObject<SpeechPlatforms> {
     acceptWaveform(samples: ArrayBuffer): Promise<void>;
     /** Signal end of stream and return final result. */
     finalize(): Promise<AsrResult>;
+    /**
+     * Replace the per-stream hotwords and recreate the decoding stream via
+     * `SherpaOnnxCreateOnlineStreamWithHotwords`. Any audio already accepted is
+     * discarded; call this before feeding a new utterance.
+     * Pass an empty string to clear hotwords and fall back to the config-level
+     * `hotwordsFile` / `hotwordsBuf`.
+     */
+    setHotwords(hotwords: string): Promise<void>;
     reset(): Promise<void>;
     unload(): Promise<void>;
 }
@@ -259,6 +287,15 @@ export interface RegisteredSpeaker {
     /** Stored embedding file path on native side. */
     embeddingPath: string;
 }
+/** One speaker match returned by `getBestMatches`. */
+export interface SpeakerMatch {
+    /** Speaker ID. */
+    id: string;
+    /** Display name. */
+    name: string;
+    /** Cosine similarity score. Larger means more similar. */
+    score: number;
+}
 /** Speaker embedding and voice cloning hybrid object. */
 export interface SpeakerManager extends HybridObject<SpeechPlatforms> {
     load(config: SpeakerEmbeddingConfig): Promise<void>;
@@ -280,6 +317,137 @@ export interface SpeakerManager extends HybridObject<SpeechPlatforms> {
     listSpeakers(): Promise<RegisteredSpeaker[]>;
     /** Remove a registered speaker. */
     removeSpeaker(id: string): Promise<void>;
+    /**
+     * Search for the best matching enrolled speaker.
+     * Returns the matched speaker ID, or an empty string when nothing passes
+     * `threshold` (cosine similarity in [0, 1]).
+     */
+    search(embedding: ArrayBuffer, threshold: number): Promise<string>;
+    /** Verify that `embedding` belongs to the enrolled speaker `id`. */
+    verify(id: string, embedding: ArrayBuffer, threshold: number): Promise<boolean>;
+    /**
+     * Return up to `n` enrolled speakers with similarity >= `threshold`,
+     * sorted by descending score.
+     */
+    getBestMatches(embedding: ArrayBuffer, threshold: number, n: number): Promise<SpeakerMatch[]>;
+    unload(): Promise<void>;
+}
+export interface SpeakerDiarizationConfig {
+    /** Directory containing all diarization model files. */
+    modelDir: string;
+    /** Speaker segmentation ONNX model (e.g. pyannote segmentation). */
+    segmentationModel: string;
+    /** Speaker embedding extractor ONNX model. */
+    embeddingModel: string;
+    /**
+     * Known number of speakers. When > 0, `threshold` is ignored.
+     * Setting this is strongly recommended when the speaker count is known.
+     */
+    numClusters?: number;
+    /** Clustering distance threshold used when `numClusters` is unknown. Default: 0.5. */
+    threshold?: number;
+    /** Discard segments shorter than this many seconds. Default: 0.3. */
+    minDurationOn?: number;
+    /** Merge gaps shorter than this many seconds. Default: 0.5. */
+    minDurationOff?: number;
+    numThreads?: number;
+    debug?: boolean;
+    provider?: string;
+}
+export interface DiarizationSegment {
+    /** Segment start offset in milliseconds. */
+    startMs: number;
+    /** Segment end offset in milliseconds. */
+    endMs: number;
+    /** Speaker cluster index (0-based). */
+    speaker: number;
+}
+export interface DiarizationResult {
+    /** Number of distinct speakers found. */
+    numSpeakers: number;
+    /** Segments sorted by start time. */
+    segments: DiarizationSegment[];
+}
+/** Offline speaker diarization hybrid object. */
+export interface SpeakerDiarization extends HybridObject<SpeechPlatforms> {
+    load(config: SpeakerDiarizationConfig): Promise<void>;
+    isLoaded(): boolean;
+    /** Required input sample rate in Hz. */
+    getSampleRate(): number;
+    /** Run diarization on mono f32 PCM at `getSampleRate()`. */
+    process(samples: ArrayBuffer): Promise<DiarizationResult>;
+    /** Run diarization on a WAV / raw PCM file. */
+    processFile(path: string): Promise<DiarizationResult>;
+    unload(): Promise<void>;
+}
+export interface LanguageIdConfig {
+    /** Directory containing the SLID model files. */
+    modelDir: string;
+    /** Whisper encoder ONNX file. */
+    whisperEncoder: string;
+    /** Whisper decoder ONNX file. */
+    whisperDecoder: string;
+    numThreads?: number;
+    debug?: boolean;
+    provider?: string;
+}
+export interface LanguageIdResult {
+    /** Predicted ISO 639-1 language code, e.g. "en", "zh", "de". */
+    lang: string;
+}
+/** Spoken language identification hybrid object. */
+export interface LanguageId extends HybridObject<SpeechPlatforms> {
+    load(config: LanguageIdConfig): Promise<void>;
+    isLoaded(): boolean;
+    /** Identify the spoken language of a 16 kHz mono f32 PCM buffer. */
+    identify(samples: ArrayBuffer): Promise<LanguageIdResult>;
+    /** Identify the spoken language of a WAV / raw PCM file. */
+    identifyFile(path: string): Promise<LanguageIdResult>;
+    unload(): Promise<void>;
+}
+export type DenoiserType = "gtcrn" | "dpdfnet";
+export interface SpeechEnhancementConfig {
+    /** Directory containing the denoiser model. */
+    modelDir: string;
+    /** Denoiser ONNX model file (e.g. `gtcrn_simple.onnx`). */
+    model: string;
+    /** Model family. Default: "gtcrn". */
+    denoiserType?: DenoiserType;
+    /** DPDFNet only: attenuation limit in dB. 0 disables the limit. */
+    attenuationLimitDb?: number;
+    numThreads?: number;
+    debug?: boolean;
+    provider?: string;
+}
+export interface EnhancedAudio {
+    /** Enhanced mono f32 PCM. Empty when the stream has not produced output yet. */
+    samples: ArrayBuffer;
+    sampleRate: number;
+    /** Duration in milliseconds. */
+    durationMs: number;
+}
+/** Speech enhancement (denoising) hybrid object, offline and streaming. */
+export interface SpeechEnhancement extends HybridObject<SpeechPlatforms> {
+    load(config: SpeechEnhancementConfig): Promise<void>;
+    isLoaded(): boolean;
+    /** Required input sample rate in Hz. */
+    getSampleRate(): number;
+    /** Offline: denoise a complete buffer of mono f32 PCM. */
+    denoise(samples: ArrayBuffer): Promise<EnhancedAudio>;
+    /** Offline: denoise a WAV / raw PCM file. */
+    denoiseFile(path: string): Promise<EnhancedAudio>;
+    /** Streaming: recommended chunk size in samples. */
+    getFrameShiftInSamples(): number;
+    /**
+     * Streaming: process one chunk of mono f32 PCM.
+     * Returns audio with empty `samples` when not enough input has been
+     * accumulated yet.
+     */
+    processChunk(samples: ArrayBuffer): Promise<EnhancedAudio>;
+    /** Streaming: flush buffered samples and reset for a new utterance. */
+    flush(): Promise<EnhancedAudio>;
+    /** Streaming: reset internal state. */
+    reset(): Promise<void>;
     unload(): Promise<void>;
 }
 export interface OnnxSpeech extends HybridObject<SpeechPlatforms> {
@@ -291,8 +459,14 @@ export interface OnnxSpeech extends HybridObject<SpeechPlatforms> {
     createStreamingAsr(): StreamingAsr;
     /** Create a TTS instance. */
     createTts(): Tts;
-    /** Create a speaker manager for voice cloning. */
+    /** Create a speaker manager for voice cloning and identification. */
     createSpeakerManager(): SpeakerManager;
+    /** Create an offline speaker diarization instance. */
+    createSpeakerDiarization(): SpeakerDiarization;
+    /** Create a spoken language identification instance. */
+    createLanguageId(): LanguageId;
+    /** Create a speech enhancement (denoising) instance. */
+    createSpeechEnhancement(): SpeechEnhancement;
     /** Get the module version. */
     readonly version: string;
     /** Returns the Qualcomm SoC model (e.g. "SM8550") on Android, or empty string on iOS / non-Qualcomm. */

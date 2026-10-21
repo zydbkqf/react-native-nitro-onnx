@@ -59,6 +59,7 @@ namespace margelo::nitro::onnx::speech {
       virtual bool isLoaded() = 0;
       virtual std::shared_ptr<Promise<AsrResult>> recognize(const std::shared_ptr<ArrayBuffer>& samples) = 0;
       virtual std::shared_ptr<Promise<AsrResult>> recognizeFile(const std::string& path) = 0;
+      virtual std::shared_ptr<Promise<AsrResult>> recognizeWithHotwords(const std::shared_ptr<ArrayBuffer>& samples, const std::string& hotwords) = 0;
       virtual std::shared_ptr<Promise<void>> unload() = 0;
 
     protected:

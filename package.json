@@ -1,6 +1,6 @@
 {
   "name": "react-native-nitro-onnx",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "React Native Nitro module wrapping sherpa-onnx for local ASR, TTS, VAD and voice cloning",
   "license": "MIT",
   "homepage": "https://github.com/zydbkqf/react-native-nitro-onnx",
@@ -10,8 +10,8 @@
   "types": "lib/index.d.ts",
   "source": "src/index.ts",
   "scripts": {
-    "postinstall": "node scripts/generate-version.js && node scripts/prepare-sherpa-onnx.js",
-    "prespecs": "node scripts/generate-version.js && node scripts/prepare-sherpa-onnx.js",
+    "postinstall": "node scripts/generate-version.js",
+    "prespecs": "node scripts/generate-version.js",
     "version": "node scripts/generate-version.js",
     "build": "tsc",
     "specs": "nitrogen",
@@ -46,7 +46,8 @@
     "cpp",
     "!cpp/tests",
     "!cpp/build*",
-    "!cpp/sherpa-onnx-prebuilt",
+    "thirdparty",
+    "!thirdparty/lib",
     "android",
     "ios",
     "assets",

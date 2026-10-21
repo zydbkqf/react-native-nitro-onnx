@@ -23,6 +23,12 @@ namespace margelo::nitro::onnx::speech { class HybridStreamingAsrSpec; }
 namespace margelo::nitro::onnx::speech { class HybridTtsSpec; }
 // Forward declaration of `HybridSpeakerManagerSpec` to properly resolve imports.
 namespace margelo::nitro::onnx::speech { class HybridSpeakerManagerSpec; }
+// Forward declaration of `HybridSpeakerDiarizationSpec` to properly resolve imports.
+namespace margelo::nitro::onnx::speech { class HybridSpeakerDiarizationSpec; }
+// Forward declaration of `HybridLanguageIdSpec` to properly resolve imports.
+namespace margelo::nitro::onnx::speech { class HybridLanguageIdSpec; }
+// Forward declaration of `HybridSpeechEnhancementSpec` to properly resolve imports.
+namespace margelo::nitro::onnx::speech { class HybridSpeechEnhancementSpec; }
 
 #include <string>
 #include <memory>
@@ -31,6 +37,9 @@ namespace margelo::nitro::onnx::speech { class HybridSpeakerManagerSpec; }
 #include "HybridStreamingAsrSpec.hpp"
 #include "HybridTtsSpec.hpp"
 #include "HybridSpeakerManagerSpec.hpp"
+#include "HybridSpeakerDiarizationSpec.hpp"
+#include "HybridLanguageIdSpec.hpp"
+#include "HybridSpeechEnhancementSpec.hpp"
 
 namespace margelo::nitro::onnx::speech {
 
@@ -68,6 +77,9 @@ namespace margelo::nitro::onnx::speech {
       virtual std::shared_ptr<HybridStreamingAsrSpec> createStreamingAsr() = 0;
       virtual std::shared_ptr<HybridTtsSpec> createTts() = 0;
       virtual std::shared_ptr<HybridSpeakerManagerSpec> createSpeakerManager() = 0;
+      virtual std::shared_ptr<HybridSpeakerDiarizationSpec> createSpeakerDiarization() = 0;
+      virtual std::shared_ptr<HybridLanguageIdSpec> createLanguageId() = 0;
+      virtual std::shared_ptr<HybridSpeechEnhancementSpec> createSpeechEnhancement() = 0;
       virtual std::string getQualcommSoc() = 0;
 
     protected:

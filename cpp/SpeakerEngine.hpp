@@ -14,11 +14,13 @@
 #include "SpeakerRecord.hpp"
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
 struct SherpaOnnxSpeakerEmbeddingExtractor;
 struct SherpaOnnxSpeakerEmbeddingExtractorConfig;
+struct SherpaOnnxSpeakerEmbeddingManager;
 
 namespace margelo::nitro::onnx::speech {
 
@@ -31,6 +33,13 @@ struct SpeakerEngineConfig {
   std::string cacheSignature() const {
     return modelDir + "|speaker|" + model + "|" + std::to_string(numThreads);
   }
+};
+
+/** One speaker match returned by getBestMatches. */
+struct SpeakerEngineMatch {
+  std::string id;
+  std::string name;
+  float score = 0.0f;
 };
 
 /** Return the on-disk path for a registered speaker id under the document dir. */
@@ -61,11 +70,32 @@ class SpeakerEngine final {
 
   std::vector<SpeakerEngineRegisteredSpeaker> listSpeakers();
   void removeSpeaker(const std::string& id);
+
+  /**
+   * Search for the best matching enrolled speaker.
+   * Returns the matched speaker id, or an empty string when nothing passes
+   * the threshold.
+   */
+  std::string search(const std::vector<float>& embedding, float threshold);
+
+  /** Verify that `embedding` belongs to the enrolled speaker `id`. */
+  bool verify(const std::string& id, const std::vector<float>& embedding, float threshold);
+
+  /** Return up to `n` enrolled speakers with similarity >= `threshold`. */
+  std::vector<SpeakerEngineMatch> getBestMatches(
+      const std::vector<float>& embedding, float threshold, int32_t n);
+
   void unload();
 
  private:
+  /** Rebuild the embedding manager from on-disk speaker records. */
+  void rebuildManagerLocked();
+  void ensureManagerLocked();
+
+  mutable std::mutex mutex_;
   SpeakerEngineConfig config_;
   std::shared_ptr<const SherpaOnnxSpeakerEmbeddingExtractor> extractor_;
+  std::shared_ptr<const SherpaOnnxSpeakerEmbeddingManager> manager_;
 };
 
 }  // namespace margelo::nitro::onnx::speech

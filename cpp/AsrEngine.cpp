@@ -44,6 +44,25 @@ float meanTokenConfidence(const float* logProbs, int32_t count) {
   return static_cast<float>(std::exp(sum / count));
 }
 
+/**
+ * Hotword biasing is only implemented for modified_beam_search. Rejecting the
+ * configuration here avoids silently ignoring hotwords under greedy_search.
+ */
+void requireHotwordsCompatible(const std::string& decodingMethod, const char* what) {
+  if (decodingMethod != "modified_beam_search") {
+    throw std::invalid_argument(
+        std::string(what) + " requires decodingMethod \"modified_beam_search\", got \"" +
+        decodingMethod + "\"");
+  }
+}
+
+void validateHotwordsConfig(const AsrEngineConfig& config) {
+  const bool hasConfigHotwords = !config.hotwordsFile.empty() || !config.hotwordsBuf.empty();
+  if (hasConfigHotwords) {
+    requireHotwordsCompatible(config.decodingMethod, "hotwordsFile / hotwordsBuf");
+  }
+}
+
 void fillTimestampsMs(AsrEngineResult& result, const float* timestamps, int32_t count) {
   if (timestamps == nullptr || count <= 0) {
     return;
@@ -84,7 +103,8 @@ AsrEngineResult fromOnlineResult(const SherpaOnnxOnlineRecognizerResult& r) {
 std::string AsrEngineConfig::cacheSignature() const {
   return modelDir + "|" + std::to_string(static_cast<int>(type)) + "|" + provider + "|" +
          std::to_string(numThreads) + "|" + language + "|" + decodingMethod + "|" +
-         std::to_string(maxActivePaths) + "|" + (useItn ? "1" : "0");
+         std::to_string(maxActivePaths) + "|" + (useItn ? "1" : "0") + "|" + hotwordsFile + "|" +
+         hotwordsBuf + "|" + std::to_string(hotwordsScore);
 }
 
 // ------------------------------------------------------------------------------
@@ -96,6 +116,7 @@ OfflineAsrEngine::~OfflineAsrEngine() {
 }
 
 void OfflineAsrEngine::load(const AsrEngineConfig& config) {
+  validateHotwordsConfig(config);
   unload();
   std::lock_guard<std::mutex> lock(mutex_);
   config_ = config;
@@ -177,6 +198,15 @@ void OfflineAsrEngine::load(const AsrEngineConfig& config) {
     c.decoding_method = config_.decodingMethod.c_str();
     c.max_active_paths = config_.maxActivePaths;
 
+    std::string hotwordsFile = joinPath(config_.modelDir, config_.hotwordsFile);
+    if (!config_.hotwordsBuf.empty()) {
+      c.hotwords_buf = config_.hotwordsBuf.c_str();
+      c.hotwords_buf_size = static_cast<int32_t>(config_.hotwordsBuf.size());
+    } else if (!config_.hotwordsFile.empty()) {
+      c.hotwords_file = hotwordsFile.c_str();
+    }
+    c.hotwords_score = config_.hotwordsScore;
+
     const SherpaOnnxOfflineRecognizer* rec = SherpaOnnxCreateOfflineRecognizer(&c);
     if (rec == nullptr) {
       throw std::runtime_error("Failed to create offline ASR recognizer");
@@ -194,18 +224,28 @@ bool OfflineAsrEngine::isLoaded() const {
 }
 
 AsrEngineResult OfflineAsrEngine::recognize(const std::vector<float>& samples) {
+  return recognizeWithHotwords(samples, std::string());
+}
+
+AsrEngineResult OfflineAsrEngine::recognizeWithHotwords(
+    const std::vector<float>& samples, const std::string& hotwords) {
   // Copy the shared_ptr under the lock, then decode without holding it so
   // concurrent recognize() calls can share the same const recognizer.
   std::shared_ptr<const SherpaOnnxOfflineRecognizer> recognizer;
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (!hotwords.empty()) {
+      requireHotwordsCompatible(config_.decodingMethod, "recognizeWithHotwords");
+    }
     recognizer = recognizer_;
   }
   if (recognizer == nullptr) {
     throw std::runtime_error("Offline ASR not loaded");
   }
 
-  const SherpaOnnxOfflineStream* stream = SherpaOnnxCreateOfflineStream(recognizer.get());
+  const SherpaOnnxOfflineStream* stream = hotwords.empty()
+      ? SherpaOnnxCreateOfflineStream(recognizer.get())
+      : SherpaOnnxCreateOfflineStreamWithHotwords(recognizer.get(), hotwords.c_str());
   SherpaOnnxAcceptWaveformOffline(stream, 16000, samples.data(), static_cast<int32_t>(samples.size()));
   SherpaOnnxDecodeOfflineStream(recognizer.get(), stream);
 
@@ -248,6 +288,7 @@ StreamingAsrEngine::~StreamingAsrEngine() {
 void StreamingAsrEngine::load(
     const AsrEngineConfig& config,
     std::shared_ptr<StreamingAsrListener> listener) {
+  validateHotwordsConfig(config);
   unload();
   std::lock_guard<std::mutex> lock(mutex_);
   config_ = config;
@@ -283,6 +324,15 @@ void StreamingAsrEngine::load(
     c.max_active_paths = config_.maxActivePaths;
     c.enable_endpoint = 1;
 
+    std::string hotwordsFile = joinPath(config_.modelDir, config_.hotwordsFile);
+    if (!config_.hotwordsBuf.empty()) {
+      c.hotwords_buf = config_.hotwordsBuf.c_str();
+      c.hotwords_buf_size = static_cast<int32_t>(config_.hotwordsBuf.size());
+    } else if (!config_.hotwordsFile.empty()) {
+      c.hotwords_file = hotwordsFile.c_str();
+    }
+    c.hotwords_score = config_.hotwordsScore;
+
     const SherpaOnnxOnlineRecognizer* rec = SherpaOnnxCreateOnlineRecognizer(&c);
     if (rec == nullptr) {
       throw std::runtime_error("Failed to create streaming ASR recognizer");
@@ -291,9 +341,8 @@ void StreamingAsrEngine::load(
   });
 
   recognizer_ = cached;
-  stream_ = std::shared_ptr<const SherpaOnnxOnlineStream>(
-      SherpaOnnxCreateOnlineStream(recognizer_.get()),
-      SherpaOnnxDestroyOnlineStream);
+  streamHotwords_.clear();
+  createStreamLocked(std::string());
 }
 
 bool StreamingAsrEngine::isLoaded() const {
@@ -353,12 +402,33 @@ AsrEngineResult StreamingAsrEngine::finalize() {
   return result;
 }
 
+void StreamingAsrEngine::createStreamLocked(const std::string& hotwords) {
+  if (recognizer_ == nullptr) {
+    throw std::runtime_error("Streaming ASR not loaded");
+  }
+  stream_ = std::shared_ptr<const SherpaOnnxOnlineStream>(
+      hotwords.empty()
+          ? SherpaOnnxCreateOnlineStream(recognizer_.get())
+          : SherpaOnnxCreateOnlineStreamWithHotwords(recognizer_.get(), hotwords.c_str()),
+      SherpaOnnxDestroyOnlineStream);
+  streamHotwords_ = hotwords;
+}
+
+void StreamingAsrEngine::setHotwords(const std::string& hotwords) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!hotwords.empty()) {
+    requireHotwordsCompatible(config_.decodingMethod, "setHotwords");
+  }
+  if (recognizer_ == nullptr) {
+    throw std::runtime_error("Streaming ASR not loaded");
+  }
+  createStreamLocked(hotwords);
+}
+
 void StreamingAsrEngine::reset() {
   std::lock_guard<std::mutex> lock(mutex_);
   if (recognizer_ != nullptr) {
-    stream_ = std::shared_ptr<const SherpaOnnxOnlineStream>(
-        SherpaOnnxCreateOnlineStream(recognizer_.get()),
-        SherpaOnnxDestroyOnlineStream);
+    createStreamLocked(streamHotwords_);
   }
 }
 

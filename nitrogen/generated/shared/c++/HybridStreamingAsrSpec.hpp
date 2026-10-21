@@ -66,6 +66,7 @@ namespace margelo::nitro::onnx::speech {
       virtual bool isLoaded() = 0;
       virtual std::shared_ptr<Promise<void>> acceptWaveform(const std::shared_ptr<ArrayBuffer>& samples) = 0;
       virtual std::shared_ptr<Promise<AsrResult>> finalize() = 0;
+      virtual std::shared_ptr<Promise<void>> setHotwords(const std::string& hotwords) = 0;
       virtual std::shared_ptr<Promise<void>> reset() = 0;
       virtual std::shared_ptr<Promise<void>> unload() = 0;
 

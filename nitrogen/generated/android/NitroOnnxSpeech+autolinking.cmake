@@ -38,6 +38,9 @@ target_sources(
   ../nitrogen/generated/shared/c++/HybridStreamingAsrSpec.cpp
   ../nitrogen/generated/shared/c++/HybridTtsSpec.cpp
   ../nitrogen/generated/shared/c++/HybridSpeakerManagerSpec.cpp
+  ../nitrogen/generated/shared/c++/HybridSpeakerDiarizationSpec.cpp
+  ../nitrogen/generated/shared/c++/HybridLanguageIdSpec.cpp
+  ../nitrogen/generated/shared/c++/HybridSpeechEnhancementSpec.cpp
   ../nitrogen/generated/shared/c++/HybridOnnxSpeechSpec.cpp
   # Android-specific Nitrogen C++ sources
   

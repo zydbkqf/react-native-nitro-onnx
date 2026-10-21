@@ -17,7 +17,6 @@ Pod::Spec.new do |s|
     "cpp/**/*.{h,hpp,c,cpp}",
     "!cpp/build*/**",
     "!cpp/tests/**",
-    "!cpp/sherpa-onnx-prebuilt/**",
     "nitrogen/generated/ios/**/*.{swift,m,mm,h,hpp,c,cpp}"
   ]
 
@@ -36,14 +35,14 @@ Pod::Spec.new do |s|
 
   s.libraries = "c++"
 
-  # Sherpa ONNX prebuilt iOS framework downloaded by prepare-sherpa-onnx.js.
-  # The xcframework is renamed from sherpa-onnx.xcframework to SherpaOnnxC.xcframework
-  # to match the inner framework name (SherpaOnnxC.framework), which CocoaPods
-  # requires for correct linker flag generation.
-  s.vendored_frameworks = "cpp/sherpa-onnx-prebuilt/ios/SherpaOnnxC.xcframework"
+  # Sherpa ONNX prebuilt iOS framework vendored under thirdparty/sherpa-onnx.
+  # The xcframework is named SherpaOnnxC.xcframework to match the inner
+  # framework name (SherpaOnnxC.framework), which CocoaPods requires for
+  # correct linker flag generation.
+  s.vendored_frameworks = "thirdparty/sherpa-onnx/ios/SherpaOnnxC.xcframework"
   puts "[NitroOnnxSpeech] 🔧 CoreML execution provider enabled for iOS"
   s.pod_target_xcconfig = {
-    "HEADER_SEARCH_PATHS" => '"$(PODS_TARGET_SRCROOT)/cpp/sherpa-onnx-prebuilt/include" "$(PODS_TARGET_SRCROOT)/cpp" "$(PODS_TARGET_SRCROOT)/nitrogen/generated/ios"',
+    "HEADER_SEARCH_PATHS" => '"$(PODS_TARGET_SRCROOT)/thirdparty/sherpa-onnx/include" "$(PODS_TARGET_SRCROOT)/cpp" "$(PODS_TARGET_SRCROOT)/nitrogen/generated/ios"',
     "CLANG_CXX_LANGUAGE_STANDARD" => "c++20",
     "GCC_PREPROCESSOR_DEFINITIONS" => "$(inherited) SHERPA_ONNX_ENABLE_COREML=1"
   }

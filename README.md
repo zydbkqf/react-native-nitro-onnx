@@ -2,10 +2,14 @@
 
 A React Native [Nitro Module](https://nitro.margelo.com) that wraps [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) for on-device speech processing:
 
-- **ASR** (Automatic Speech Recognition) - offline and streaming
+- **ASR** (Automatic Speech Recognition) - offline and streaming, with **hotword biasing**
 - **TTS** (Text-to-Speech)
 - **VAD** (Voice Activity Detection) with sliding pre-buffer
 - **Voice cloning** via speaker embeddings and reference-audio TTS
+- **Speaker identification** - search / verify / best-matches over enrolled speakers
+- **Speaker diarization** - who spoke when
+- **Spoken language identification** - detect the language of an utterance
+- **Speech enhancement** - noise suppression (offline and streaming)
 
 All audio I/O uses zero-copy `ArrayBuffer` with **16 kHz mono f32 PCM**.
 
@@ -14,7 +18,7 @@ All audio I/O uses zero-copy `ArrayBuffer` with **16 kHz mono f32 PCM**.
 > 📢 **Important note about scope & package name**
 >
 > At the present time, this binding is built exclusively for **speech‑related workloads via sherpa‑onnx**:
-> ASR, TTS, VAD and speaker embedding only.
+> ASR, TTS, VAD, speaker embedding / diarization, language identification and speech enhancement only.
 > It is **NOT a general‑purpose ONNX Runtime binding** for arbitrary ONNX models (YOLO, LLM etc).
 >
 > The package name `react-native-nitro‑onnx` may appear to imply general‑purpose ONNX support,
@@ -37,9 +41,14 @@ All audio I/O uses zero-copy `ArrayBuffer` with **16 kHz mono f32 PCM**.
 - [Model File Requirements](#model-file-requirements)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Hotwords](#hotwords)
 - [Execution Providers](#execution-providers)
 - [VAD Pre-buffer](#vad-pre-buffer)
 - [Voice Cloning](#voice-cloning)
+- [Speaker Identification](#speaker-identification)
+- [Speaker Diarization](#speaker-diarization)
+- [Spoken Language Identification](#spoken-language-identification)
+- [Speech Enhancement](#speech-enhancement)
 - [Threading](#threading)
 - [Testing](#testing)
 - [License](#license)
@@ -51,12 +60,17 @@ All audio I/O uses zero-copy `ArrayBuffer` with **16 kHz mono f32 PCM**.
 │                         JS / TS                             │
 │  getOnnxSpeech() → createVad() / createTts() /              │
 │                    createOfflineAsr() / createStreamingAsr() │
+│                    createSpeakerManager() /                  │
+│                    createSpeakerDiarization() /              │
+│                    createLanguageId() /                      │
+│                    createSpeechEnhancement()                 │
 └──────────────────────┬──────────────────────────────────────┘
 │  react-native-nitro-modules (zero-copy ArrayBuffer)
 ┌──────────────────────┴──────────────────────────────────────┐
 │                         C++                                 │
 │  NitroOnnxSpeech → Vad / OfflineAsr / StreamingAsr / Tts /  │
-│                    SpeakerManager                           │
+│                    SpeakerManager / SpeakerDiarization /    │
+│                    LanguageId / SpeechEnhancement           │
 │  ModelSingleton caches heavy recognizer / TTS instances     │
 └──────────────────────┬──────────────────────────────────────┘
 │  sherpa-onnx C API
@@ -67,7 +81,7 @@ All audio I/O uses zero-copy `ArrayBuffer` with **16 kHz mono f32 PCM**.
 
 Key design decisions:
 
-- **Singleton preloading:** `OfflineAsrEngine`, `StreamingAsrEngine`, `TtsEngine` and `SpeakerEngine` use `ModelSingleton`. The cache key covers model dir, type, provider, thread count and other identity-relevant options, so loading the same configuration twice returns the same native instance while a changed option creates a new one.
+- **Singleton preloading:** `OfflineAsrEngine`, `StreamingAsrEngine`, `TtsEngine`, `SpeakerEngine`, `SpeakerDiarizationEngine`, `LanguageIdEngine` and `SpeechEnhancementEngine` use `ModelSingleton`. The cache key covers model dir, type, provider, thread count and other identity-relevant options, so loading the same configuration twice returns the same native instance while a changed option creates a new one.
 - **Background inference:** Every heavy operation runs on a background task pool provided by `react-native-nitro-modules` (`Promise::async`) so the JS thread never blocks. VAD additionally uses a dedicated processor thread for streaming segmentation.
 - **External model download:** The module does not bundle an internal downloader. Download model files in the background with a library such as [`@kesha-antonov/react-native-background-downloader`](https://github.com/kesha-antonov/react-native-background-downloader), then pass the local file paths to `load()` / `initialize()`.
 - **Zero-copy audio:** `ArrayBuffer` is the only audio transport format; samples are expected to be 16 kHz mono little-endian f32 PCM.
@@ -111,6 +125,9 @@ Pretrained sherpa-onnx model families are published as GitHub release assets. Do
 
 - **TTS models:** https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models
 - **ASR models:** https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models
+- **Speaker embedding / diarization:** https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models
+- **Spoken language identification:** use a Whisper model from the ASR models tag (`sherpa-onnx-whisper-tiny`)
+- **Speech enhancement:** https://github.com/k2-fsa/sherpa-onnx/releases/tag/speech-enhancement-models
 
 > The Silero VAD model (`silero_vad.onnx`) is bundled with the module, so no separate download is required for VAD.
 
@@ -234,11 +251,34 @@ zipvoice/
 
 `silero_vad.onnx` is bundled with the module and used by default. A custom model can be provided via `VadConfig.modelPath`.
 
-### Speaker embedding (voice cloning)
+### Speaker embedding (voice cloning / identification)
 
 ```
 speaker/
   model.onnx
+```
+
+### Speaker diarization
+
+```
+diarization/
+  segmentation.onnx    # pyannote-style segmentation model
+  embedding.onnx       # speaker embedding extractor
+```
+
+### Spoken language identification
+
+```
+slid/
+  tiny-encoder.int8.onnx
+  tiny-decoder.int8.onnx
+```
+
+### Speech enhancement
+
+```
+denoiser/
+  gtcrn_simple.onnx    # or a DPDFNet model
 ```
 
 ## Installation
@@ -254,9 +294,21 @@ Build requirements:
 - React Native >= 0.78
 - react-native-nitro-modules >= 0.35.8
 - Xcode 15 / Android NDK 26
-- The `postinstall` script runs `generate-version.js` (keeps `cpp/Version.hpp` in sync with `package.json`) and `prepare-sherpa-onnx.js`, which downloads the sherpa-onnx
-  prebuilt tree (host static libraries, Android shared libraries, iOS
-  xcframework, and C API headers) into `cpp/sherpa-onnx-prebuilt`.
+
+The sherpa-onnx prebuilt tree (host static libraries, Android shared libraries,
+iOS xcframework, and C API headers) is **vendored and committed under
+`thirdparty/sherpa-onnx`** and ships with the package, so no download happens at
+install, configure, or build time. To upgrade sherpa-onnx, replace the files
+under `thirdparty/sherpa-onnx` manually and commit the tree.
+
+Binary artifacts (Android `*.so`, the iOS xcframework Mach-O) are tracked with
+**Git LFS**; install [`git-lfs`](https://git-lfs.com) before cloning so the
+pointers are smudged to real files. Text headers, plists and module maps stay in
+ordinary git. The host static libraries under `lib/` are local-only and are not
+committed.
+
+The `postinstall` script only runs `generate-version.js`, which keeps
+`cpp/Version.hpp` in sync with `package.json`.
 
 iOS:
 
@@ -360,6 +412,53 @@ await tts.saveWav(audio, "/path/to/output.wav");
 > source.connect(ctx.destination);
 > source.start();
 > ```
+
+## Hotwords
+
+Hotword biasing nudges the decoder toward domain-specific terms (product names, contact names, etc). It is supported on both offline and streaming ASR and **requires `decodingMethod: "modified_beam_search"`** — the native layer rejects hotwords configured under `greedy_search` with an error rather than silently ignoring them.
+
+Three config fields control recognizer-level hotwords:
+
+| Field | Meaning |
+|---|---|
+| `hotwordsFile` | Path to a hotwords file on the device (one hotword per line, BPE tokens separated by spaces) |
+| `hotwordsBuf` | In-memory hotwords text in the same format; overrides `hotwordsFile` when set |
+| `hotwordsScore` | Bonus score added to each hotword token. Default: `1.5` |
+
+Per-utterance / per-stream hotwords are also available:
+
+- **Offline:** `recognizeWithHotwords(samples, hotwords)` — uses `SherpaOnnxCreateOfflineStreamWithHotwords`.
+- **Streaming:** `setHotwords(hotwords)` — recreates the decoding stream via `SherpaOnnxCreateOnlineStreamWithHotwords`. Call it before feeding a new utterance; pass `""` to clear.
+
+```typescript
+const asr = speech.createOfflineAsr();
+await asr.load({
+  type: "zipformer",
+  modelDir,
+  tokensPath: `${modelDir}/tokens.txt`,
+  encoder: `${modelDir}/encoder.onnx`,
+  decoder: `${modelDir}/decoder.onnx`,
+  joiner: `${modelDir}/joiner.onnx`,
+  decodingMethod: "modified_beam_search",
+  hotwordsBuf: "▁HELLO ▁WORLD",
+  hotwordsScore: 2.0,
+});
+
+// Per-utterance override:
+const result = await asr.recognizeWithHotwords(pcm, "▁NITRO ▁MODULE");
+```
+
+```typescript
+const streaming = speech.createStreamingAsr();
+await streaming.load({
+  type: "zipformer",
+  /* ... transducer triple ... */
+  decodingMethod: "modified_beam_search",
+});
+await streaming.setHotwords("▁HELLO ▁WORLD");
+await streaming.acceptWaveform(chunk);
+const final = await streaming.finalize();
+```
 
 ## Execution Providers
 
@@ -466,14 +565,144 @@ const cloned = await tts.synthesizeWithSpeaker("Hello, I am Alice.", registered.
 const voice0 = await tts.synthesizeWithSpeaker("Hello there.", "0");
 ```
 
+## Speaker Identification
+
+`SpeakerManager` also exposes 1:N identification and 1:1 verification over enrolled speakers, backed by `SherpaOnnxSpeakerEmbeddingManager`. The in-memory index is rebuilt from the on-disk records at `load()` and kept in sync by `registerSpeaker` / `registerSpeakerFromFile` / `removeSpeaker`.
+
+| Method | Signature | Returns |
+|---|---|---|
+| `search` | `(embedding, threshold)` | Best-matching speaker ID, or `""` when nothing passes `threshold` |
+| `verify` | `(id, embedding, threshold)` | `true` when `embedding` belongs to enrolled speaker `id` |
+| `getBestMatches` | `(embedding, threshold, n)` | Up to `n` `SpeakerMatch` entries sorted by descending score |
+
+`threshold` is a cosine similarity in `[0, 1]`. Typical values are `0.4` – `0.6` depending on the embedding model.
+
+```typescript
+const speaker = speech.createSpeakerManager();
+await speaker.load({ modelDir, model: "model.onnx", numThreads: 4 });
+
+// Enroll
+await speaker.registerSpeakerFromFile("alice", "Alice", "/path/to/alice.wav");
+await speaker.registerSpeakerFromFile("bob", "Bob", "/path/to/bob.wav");
+
+// Identify from a probe embedding
+const embedding = await speaker.computeEmbedding(probePcm);
+const id = await speaker.search(embedding, 0.5);
+if (id) {
+  console.log("matched", id);
+}
+
+// Verify
+const ok = await speaker.verify("alice", embedding, 0.5);
+
+// Ranked matches
+const matches = await speaker.getBestMatches(embedding, 0.4, 3);
+for (const m of matches) {
+  console.log(m.id, m.name, m.score);
+}
+```
+
+## Speaker Diarization
+
+Offline speaker diarization answers "who spoke when". It uses a segmentation model (e.g. pyannote) plus a speaker embedding extractor and a clustering stage.
+
+```
+diarization/
+  segmentation.onnx     # e.g. sherpa-onnx-pyannote-segmentation-3-0
+  embedding.onnx        # e.g. 3dspeaker_speech_campplus_sv_zh-cn_16k-common
+```
+
+```typescript
+const diarization = speech.createSpeakerDiarization();
+await diarization.load({
+  modelDir: `${RNFS.DocumentDirectoryPath}/diarization`,
+  segmentationModel: "segmentation.onnx",
+  embeddingModel: "embedding.onnx",
+  // Strongly recommended when the speaker count is known:
+  numClusters: 2,
+  // threshold: 0.5,        // used only when numClusters is 0
+  // minDurationOn: 0.3,    // seconds
+  // minDurationOff: 0.5,   // seconds
+});
+
+const result = await diarization.process(pcmBuffer);
+console.log("speakers:", result.numSpeakers);
+for (const seg of result.segments) {
+  console.log(seg.startMs, "→", seg.endMs, "speaker", seg.speaker);
+}
+```
+
+`getSampleRate()` returns the input sample rate the diarization model expects (commonly 16000 Hz).
+
+## Spoken Language Identification
+
+Detect the language of an utterance with a Whisper-based SLID model (`sherpa-onnx-whisper-tiny` family works well):
+
+```
+slid/
+  tiny-encoder.int8.onnx
+  tiny-decoder.int8.onnx
+```
+
+```typescript
+const langId = speech.createLanguageId();
+await langId.load({
+  modelDir: `${RNFS.DocumentDirectoryPath}/slid`,
+  whisperEncoder: "tiny-encoder.int8.onnx",
+  whisperDecoder: "tiny-decoder.int8.onnx",
+  numThreads: 2,
+});
+
+const result = await langId.identify(pcmBuffer);
+console.log(result.lang); // "en", "zh", "de", ...
+```
+
+## Speech Enhancement
+
+Noise suppression for clean speech output. Two model families are supported via `denoiserType`:
+
+| `denoiserType` | Model | Notes |
+|---|---|---|
+| `"gtcrn"` (default) | GTCRN (`gtcrn_simple.onnx`) | Lightweight, good quality |
+| `"dpdfnet"` | DPDFNet | Supports `attenuationLimitDb` |
+
+Both offline (whole-buffer) and streaming (chunked) APIs are available:
+
+```typescript
+const enhancer = speech.createSpeechEnhancement();
+await enhancer.load({
+  modelDir: `${RNFS.DocumentDirectoryPath}/denoiser`,
+  model: "gtcrn_simple.onnx",
+  denoiserType: "gtcrn",
+  numThreads: 2,
+});
+
+// Offline
+const clean = await enhancer.denoise(noisyPcm);
+// clean.samples is an ArrayBuffer of f32 PCM at clean.sampleRate.
+
+// Streaming
+const frameShift = enhancer.getFrameShiftInSamples();
+let chunk = await enhancer.processChunk(noisyChunk);
+if (chunk.samples.byteLength > 0) {
+  // emit / accumulate enhanced audio
+}
+const tail = await enhancer.flush(); // flush + reset for the next utterance
+```
+
+> **Note:** `processChunk` may return audio with empty `samples` when not enough input has been accumulated yet. `flush()` also resets the stream so the instance can be reused.
+
 ## Threading
 
 Every native inference task runs on a background thread pool (`Promise::async` from react-native-nitro-modules):
 
 - VAD processing (plus a dedicated processor thread for streaming segmentation)
-- Offline / streaming ASR decode
+- Offline / streaming ASR decode (including hotword-biased decode)
 - TTS synthesis
-- Speaker embedding extraction
+- Speaker embedding extraction, search / verify
+- Speaker diarization
+- Spoken language identification
+- Speech enhancement
 
 JS calls return promises that resolve on the JS thread when the background work completes. Native event callbacks (VAD speech start/end, streaming partial/final results, ASR/TTS errors) are dispatched to JS without blocking inference.
 

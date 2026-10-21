@@ -1,0 +1,2 @@
+thirdparty/sherpa-onnx/android/**/*.so filter=lfs diff=lfs merge=lfs -text
+thirdparty/sherpa-onnx/ios/**/SherpaOnnxC filter=lfs diff=lfs merge=lfs -text

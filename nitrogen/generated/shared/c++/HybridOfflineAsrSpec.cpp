@@ -18,6 +18,7 @@ namespace margelo::nitro::onnx::speech {
       prototype.registerHybridMethod("isLoaded", &HybridOfflineAsrSpec::isLoaded);
       prototype.registerHybridMethod("recognize", &HybridOfflineAsrSpec::recognize);
       prototype.registerHybridMethod("recognizeFile", &HybridOfflineAsrSpec::recognizeFile);
+      prototype.registerHybridMethod("recognizeWithHotwords", &HybridOfflineAsrSpec::recognizeWithHotwords);
       prototype.registerHybridMethod("unload", &HybridOfflineAsrSpec::unload);
     });
   }

@@ -57,12 +57,15 @@ namespace margelo::nitro::onnx::speech {
     std::optional<double> maxActivePaths     SWIFT_PRIVATE;
     std::optional<std::string> language     SWIFT_PRIVATE;
     std::optional<bool> useItn     SWIFT_PRIVATE;
+    std::optional<std::string> hotwordsFile     SWIFT_PRIVATE;
+    std::optional<std::string> hotwordsBuf     SWIFT_PRIVATE;
+    std::optional<double> hotwordsScore     SWIFT_PRIVATE;
     std::optional<bool> debug     SWIFT_PRIVATE;
     std::optional<std::string> provider     SWIFT_PRIVATE;
 
   public:
     AsrModelConfig() = default;
-    explicit AsrModelConfig(AsrModelType type, std::string modelDir, std::string tokensPath, std::optional<std::string> whisperEncoder, std::optional<std::string> whisperDecoder, std::optional<std::string> encoder, std::optional<std::string> decoder, std::optional<std::string> joiner, std::optional<std::string> model, std::optional<std::string> config, std::optional<double> numThreads, std::optional<std::string> decodingMethod, std::optional<double> maxActivePaths, std::optional<std::string> language, std::optional<bool> useItn, std::optional<bool> debug, std::optional<std::string> provider): type(type), modelDir(modelDir), tokensPath(tokensPath), whisperEncoder(whisperEncoder), whisperDecoder(whisperDecoder), encoder(encoder), decoder(decoder), joiner(joiner), model(model), config(config), numThreads(numThreads), decodingMethod(decodingMethod), maxActivePaths(maxActivePaths), language(language), useItn(useItn), debug(debug), provider(provider) {}
+    explicit AsrModelConfig(AsrModelType type, std::string modelDir, std::string tokensPath, std::optional<std::string> whisperEncoder, std::optional<std::string> whisperDecoder, std::optional<std::string> encoder, std::optional<std::string> decoder, std::optional<std::string> joiner, std::optional<std::string> model, std::optional<std::string> config, std::optional<double> numThreads, std::optional<std::string> decodingMethod, std::optional<double> maxActivePaths, std::optional<std::string> language, std::optional<bool> useItn, std::optional<std::string> hotwordsFile, std::optional<std::string> hotwordsBuf, std::optional<double> hotwordsScore, std::optional<bool> debug, std::optional<std::string> provider): type(type), modelDir(modelDir), tokensPath(tokensPath), whisperEncoder(whisperEncoder), whisperDecoder(whisperDecoder), encoder(encoder), decoder(decoder), joiner(joiner), model(model), config(config), numThreads(numThreads), decodingMethod(decodingMethod), maxActivePaths(maxActivePaths), language(language), useItn(useItn), hotwordsFile(hotwordsFile), hotwordsBuf(hotwordsBuf), hotwordsScore(hotwordsScore), debug(debug), provider(provider) {}
 
   public:
     friend bool operator==(const AsrModelConfig& lhs, const AsrModelConfig& rhs) = default;
@@ -93,6 +96,9 @@ namespace margelo::nitro {
         JSIConverter<std::optional<double>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "maxActivePaths"))),
         JSIConverter<std::optional<std::string>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "language"))),
         JSIConverter<std::optional<bool>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "useItn"))),
+        JSIConverter<std::optional<std::string>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "hotwordsFile"))),
+        JSIConverter<std::optional<std::string>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "hotwordsBuf"))),
+        JSIConverter<std::optional<double>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "hotwordsScore"))),
         JSIConverter<std::optional<bool>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "debug"))),
         JSIConverter<std::optional<std::string>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "provider")))
       );
@@ -114,6 +120,9 @@ namespace margelo::nitro {
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "maxActivePaths"), JSIConverter<std::optional<double>>::toJSI(runtime, arg.maxActivePaths));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "language"), JSIConverter<std::optional<std::string>>::toJSI(runtime, arg.language));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "useItn"), JSIConverter<std::optional<bool>>::toJSI(runtime, arg.useItn));
+      obj.setProperty(runtime, PropNameIDCache::get(runtime, "hotwordsFile"), JSIConverter<std::optional<std::string>>::toJSI(runtime, arg.hotwordsFile));
+      obj.setProperty(runtime, PropNameIDCache::get(runtime, "hotwordsBuf"), JSIConverter<std::optional<std::string>>::toJSI(runtime, arg.hotwordsBuf));
+      obj.setProperty(runtime, PropNameIDCache::get(runtime, "hotwordsScore"), JSIConverter<std::optional<double>>::toJSI(runtime, arg.hotwordsScore));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "debug"), JSIConverter<std::optional<bool>>::toJSI(runtime, arg.debug));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "provider"), JSIConverter<std::optional<std::string>>::toJSI(runtime, arg.provider));
       return obj;
@@ -141,6 +150,9 @@ namespace margelo::nitro {
       if (!JSIConverter<std::optional<double>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "maxActivePaths")))) return false;
       if (!JSIConverter<std::optional<std::string>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "language")))) return false;
       if (!JSIConverter<std::optional<bool>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "useItn")))) return false;
+      if (!JSIConverter<std::optional<std::string>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "hotwordsFile")))) return false;
+      if (!JSIConverter<std::optional<std::string>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "hotwordsBuf")))) return false;
+      if (!JSIConverter<std::optional<double>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "hotwordsScore")))) return false;
       if (!JSIConverter<std::optional<bool>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "debug")))) return false;
       if (!JSIConverter<std::optional<std::string>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "provider")))) return false;
       return true;

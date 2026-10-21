@@ -21,6 +21,9 @@ namespace margelo::nitro::onnx::speech {
       prototype.registerHybridMethod("registerSpeakerFromFile", &HybridSpeakerManagerSpec::registerSpeakerFromFile);
       prototype.registerHybridMethod("listSpeakers", &HybridSpeakerManagerSpec::listSpeakers);
       prototype.registerHybridMethod("removeSpeaker", &HybridSpeakerManagerSpec::removeSpeaker);
+      prototype.registerHybridMethod("search", &HybridSpeakerManagerSpec::search);
+      prototype.registerHybridMethod("verify", &HybridSpeakerManagerSpec::verify);
+      prototype.registerHybridMethod("getBestMatches", &HybridSpeakerManagerSpec::getBestMatches);
       prototype.registerHybridMethod("unload", &HybridSpeakerManagerSpec::unload);
     });
   }

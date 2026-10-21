@@ -4,7 +4,17 @@
 
 import { getOnnxSpeech, DEFAULT_AUDIO_FORMAT } from "../index";
 import { createHybridObject, resetMocks } from "../__mocks__/react-native-nitro-modules";
-import type { OnnxSpeech, Vad, OfflineAsr, StreamingAsr, Tts, SpeakerManager } from "../specs/OnnxSpeech.nitro";
+import type {
+  OnnxSpeech,
+  Vad,
+  OfflineAsr,
+  StreamingAsr,
+  Tts,
+  SpeakerManager,
+  SpeakerDiarization,
+  LanguageId,
+  SpeechEnhancement,
+} from "../specs/OnnxSpeech.nitro";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -26,6 +36,7 @@ describe("react-native-nitro-onnx public API", () => {
     isLoaded: jest.fn(() => false),
     recognize: jest.fn(async () => ({ text: "" })),
     recognizeFile: jest.fn(async () => ({ text: "" })),
+    recognizeWithHotwords: jest.fn(async () => ({ text: "" })),
     unload: jest.fn(async () => {}),
   } as unknown as OfflineAsr;
 
@@ -34,6 +45,7 @@ describe("react-native-nitro-onnx public API", () => {
     isLoaded: jest.fn(() => false),
     acceptWaveform: jest.fn(async () => {}),
     finalize: jest.fn(async () => ({ text: "" })),
+    setHotwords: jest.fn(async () => {}),
     reset: jest.fn(async () => {}),
     unload: jest.fn(async () => {}),
   } as unknown as StreamingAsr;
@@ -54,8 +66,41 @@ describe("react-native-nitro-onnx public API", () => {
     registerSpeakerFromFile: jest.fn(async () => ({ id: "", name: "", embeddingPath: "" })),
     listSpeakers: jest.fn(async () => []),
     removeSpeaker: jest.fn(async () => {}),
+    search: jest.fn(async () => ""),
+    verify: jest.fn(async () => false),
+    getBestMatches: jest.fn(async () => []),
     unload: jest.fn(async () => {}),
   } as unknown as SpeakerManager;
+
+  const mockSpeakerDiarization: SpeakerDiarization = {
+    load: jest.fn(async () => {}),
+    isLoaded: jest.fn(() => false),
+    getSampleRate: jest.fn(() => 16000),
+    process: jest.fn(async () => ({ numSpeakers: 0, segments: [] })),
+    processFile: jest.fn(async () => ({ numSpeakers: 0, segments: [] })),
+    unload: jest.fn(async () => {}),
+  } as unknown as SpeakerDiarization;
+
+  const mockLanguageId: LanguageId = {
+    load: jest.fn(async () => {}),
+    isLoaded: jest.fn(() => false),
+    identify: jest.fn(async () => ({ lang: "en" })),
+    identifyFile: jest.fn(async () => ({ lang: "en" })),
+    unload: jest.fn(async () => {}),
+  } as unknown as LanguageId;
+
+  const mockSpeechEnhancement: SpeechEnhancement = {
+    load: jest.fn(async () => {}),
+    isLoaded: jest.fn(() => false),
+    getSampleRate: jest.fn(() => 16000),
+    denoise: jest.fn(async () => ({ samples: new ArrayBuffer(0), sampleRate: 16000, durationMs: 0 })),
+    denoiseFile: jest.fn(async () => ({ samples: new ArrayBuffer(0), sampleRate: 16000, durationMs: 0 })),
+    getFrameShiftInSamples: jest.fn(() => 256),
+    processChunk: jest.fn(async () => ({ samples: new ArrayBuffer(0), sampleRate: 16000, durationMs: 0 })),
+    flush: jest.fn(async () => ({ samples: new ArrayBuffer(0), sampleRate: 16000, durationMs: 0 })),
+    reset: jest.fn(async () => {}),
+    unload: jest.fn(async () => {}),
+  } as unknown as SpeechEnhancement;
 
   const mockOnnxSpeech: OnnxSpeech = {
     createVad: jest.fn(() => mockVad),
@@ -63,6 +108,9 @@ describe("react-native-nitro-onnx public API", () => {
     createStreamingAsr: jest.fn(() => mockStreamingAsr),
     createTts: jest.fn(() => mockTts),
     createSpeakerManager: jest.fn(() => mockSpeakerManager),
+    createSpeakerDiarization: jest.fn(() => mockSpeakerDiarization),
+    createLanguageId: jest.fn(() => mockLanguageId),
+    createSpeechEnhancement: jest.fn(() => mockSpeechEnhancement),
     version: packageVersion,
   } as unknown as OnnxSpeech;
 
@@ -87,6 +135,28 @@ describe("react-native-nitro-onnx public API", () => {
     expect(speech.createStreamingAsr()).toBe(mockStreamingAsr);
     expect(speech.createTts()).toBe(mockTts);
     expect(speech.createSpeakerManager()).toBe(mockSpeakerManager);
+    expect(speech.createSpeakerDiarization()).toBe(mockSpeakerDiarization);
+    expect(speech.createLanguageId()).toBe(mockLanguageId);
+    expect(speech.createSpeechEnhancement()).toBe(mockSpeechEnhancement);
+  });
+
+  it("exposes hotword APIs on ASR", async () => {
+    const speech = getOnnxSpeech();
+    const asr = speech.createOfflineAsr();
+    await asr.recognizeWithHotwords(new ArrayBuffer(0), "▁HELLO");
+    expect(mockOfflineAsr.recognizeWithHotwords).toHaveBeenCalled();
+
+    const streaming = speech.createStreamingAsr();
+    await streaming.setHotwords("▁HELLO");
+    expect(mockStreamingAsr.setHotwords).toHaveBeenCalledWith("▁HELLO");
+  });
+
+  it("exposes speaker search / verify / getBestMatches", async () => {
+    const speech = getOnnxSpeech();
+    const speaker = speech.createSpeakerManager();
+    expect(await speaker.search(new ArrayBuffer(0), 0.5)).toBe("");
+    expect(await speaker.verify("alice", new ArrayBuffer(0), 0.5)).toBe(false);
+    expect(await speaker.getBestMatches(new ArrayBuffer(0), 0.4, 3)).toEqual([]);
   });
 
   it("reports the module version", () => {

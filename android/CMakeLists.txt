@@ -29,29 +29,14 @@ endif()
 # ------------------------------------------------------------------------------
 find_package(react-native-nitro-modules REQUIRED CONFIG)
 
-# Sherpa ONNX: the prebuilt tree is fixed at cpp/sherpa-onnx-prebuilt.
-# If it is missing, run the prepare script automatically at configure time.
-set(_ONNX_PREBUILT_DIR "${CMAKE_SOURCE_DIR}/../cpp/sherpa-onnx-prebuilt")
-if(NOT EXISTS "${_ONNX_PREBUILT_DIR}")
-  find_program(NODE_EXECUTABLE node REQUIRED)
-  message(STATUS "sherpa-onnx prebuilt not found; running prepare-sherpa-onnx.js...")
-  execute_process(
-    COMMAND ${NODE_EXECUTABLE} ../scripts/prepare-sherpa-onnx.js
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    RESULT_VARIABLE _PREPARE_RESULT
-    OUTPUT_VARIABLE _PREPARE_OUTPUT
-    ERROR_VARIABLE _PREPARE_ERROR
-  )
-  if(NOT _PREPARE_RESULT EQUAL 0)
-    message(FATAL_ERROR
-      "Failed to run prepare-sherpa-onnx.js:\n${_PREPARE_OUTPUT}\n${_PREPARE_ERROR}"
-    )
-  endif()
-endif()
+# Sherpa ONNX: the prebuilt tree is vendored and committed at
+# thirdparty/sherpa-onnx. No download happens at configure or build time.
+set(_ONNX_PREBUILT_DIR "${CMAKE_SOURCE_DIR}/../thirdparty/sherpa-onnx")
 if(NOT EXISTS "${_ONNX_PREBUILT_DIR}")
   message(FATAL_ERROR
-    "sherpa-onnx prebuilt is missing at cpp/sherpa-onnx-prebuilt. "
-    "Run 'yarn install' to download a prebuilt library."
+    "sherpa-onnx prebuilt tree is missing at thirdparty/sherpa-onnx. "
+    "It is vendored with the repository; restore the directory from git "
+    "or re-vendor the prebuilt libraries manually."
   )
 endif()
 
@@ -78,8 +63,8 @@ if(ANDROID)
   set(_ANDROID_ABI_DIR "${_ONNX_PREBUILT_DIR}/android/jniLibs/${ANDROID_ABI}")
   if(NOT EXISTS "${_ANDROID_ABI_DIR}")
     message(FATAL_ERROR
-      "Missing sherpa-onnx Android libraries for ABI ${ANDROID_ABI}. "
-      "Run 'yarn install' to download the prebuilt tree."
+      "Missing sherpa-onnx Android libraries for ABI ${ANDROID_ABI} in "
+      "thirdparty/sherpa-onnx/android/jniLibs. Restore the vendored tree from git."
     )
   endif()
 

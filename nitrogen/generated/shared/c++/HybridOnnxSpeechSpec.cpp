@@ -20,6 +20,9 @@ namespace margelo::nitro::onnx::speech {
       prototype.registerHybridMethod("createStreamingAsr", &HybridOnnxSpeechSpec::createStreamingAsr);
       prototype.registerHybridMethod("createTts", &HybridOnnxSpeechSpec::createTts);
       prototype.registerHybridMethod("createSpeakerManager", &HybridOnnxSpeechSpec::createSpeakerManager);
+      prototype.registerHybridMethod("createSpeakerDiarization", &HybridOnnxSpeechSpec::createSpeakerDiarization);
+      prototype.registerHybridMethod("createLanguageId", &HybridOnnxSpeechSpec::createLanguageId);
+      prototype.registerHybridMethod("createSpeechEnhancement", &HybridOnnxSpeechSpec::createSpeechEnhancement);
       prototype.registerHybridMethod("getQualcommSoc", &HybridOnnxSpeechSpec::getQualcommSoc);
     });
   }

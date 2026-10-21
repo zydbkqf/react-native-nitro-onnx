@@ -27,6 +27,7 @@ class StreamingAsr : public HybridStreamingAsrSpec,
   bool isLoaded() override;
   std::shared_ptr<Promise<void>> acceptWaveform(const std::shared_ptr<ArrayBuffer>& samples) override;
   std::shared_ptr<Promise<AsrResult>> finalize() override;
+  std::shared_ptr<Promise<void>> setHotwords(const std::string& hotwords) override;
   std::shared_ptr<Promise<void>> reset() override;
   std::shared_ptr<Promise<void>> unload() override;
 

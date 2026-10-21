@@ -41,6 +41,9 @@ struct AsrEngineConfig {
   int32_t maxActivePaths = 4;
   std::string language = "en";
   bool useItn = true;
+  std::string hotwordsFile;
+  std::string hotwordsBuf;
+  float hotwordsScore = 1.5f;
   bool debug = false;
 #if defined(__ANDROID__) && defined(SHERPA_ONNX_ENABLE_QNN)
   std::string provider = "qnn";
@@ -87,6 +90,8 @@ class OfflineAsrEngine final {
   void load(const AsrEngineConfig& config);
   bool isLoaded() const;
   AsrEngineResult recognize(const std::vector<float>& samples);
+  /** Recognize with per-utterance hotwords via CreateOfflineStreamWithHotwords. */
+  AsrEngineResult recognizeWithHotwords(const std::vector<float>& samples, const std::string& hotwords);
   AsrEngineResult recognizeFile(const std::string& path);
   void unload();
 
@@ -109,15 +114,23 @@ class StreamingAsrEngine final {
   bool isLoaded() const;
   void acceptWaveform(const std::vector<float>& samples);
   AsrEngineResult finalize();
+  /**
+   * Replace per-stream hotwords and recreate the decoding stream via
+   * CreateOnlineStreamWithHotwords. Pass an empty string to clear them.
+   */
+  void setHotwords(const std::string& hotwords);
   void reset();
   void unload();
 
  private:
+  void createStreamLocked(const std::string& hotwords);
+
   mutable std::mutex mutex_;
   AsrEngineConfig config_;
   std::weak_ptr<StreamingAsrListener> listener_;
   std::shared_ptr<const SherpaOnnxOnlineRecognizer> recognizer_;
   std::shared_ptr<const SherpaOnnxOnlineStream> stream_;
+  std::string streamHotwords_;
 };
 
 }  // namespace margelo::nitro::onnx::speech

@@ -17,6 +17,8 @@
 namespace margelo::nitro::onnx::speech { struct SpeakerEmbeddingConfig; }
 // Forward declaration of `RegisteredSpeaker` to properly resolve imports.
 namespace margelo::nitro::onnx::speech { struct RegisteredSpeaker; }
+// Forward declaration of `SpeakerMatch` to properly resolve imports.
+namespace margelo::nitro::onnx::speech { struct SpeakerMatch; }
 
 #include <NitroModules/Promise.hpp>
 #include "SpeakerEmbeddingConfig.hpp"
@@ -24,6 +26,7 @@ namespace margelo::nitro::onnx::speech { struct RegisteredSpeaker; }
 #include "RegisteredSpeaker.hpp"
 #include <string>
 #include <vector>
+#include "SpeakerMatch.hpp"
 
 namespace margelo::nitro::onnx::speech {
 
@@ -63,6 +66,9 @@ namespace margelo::nitro::onnx::speech {
       virtual std::shared_ptr<Promise<RegisteredSpeaker>> registerSpeakerFromFile(const std::string& id, const std::string& name, const std::string& path) = 0;
       virtual std::shared_ptr<Promise<std::vector<RegisteredSpeaker>>> listSpeakers() = 0;
       virtual std::shared_ptr<Promise<void>> removeSpeaker(const std::string& id) = 0;
+      virtual std::shared_ptr<Promise<std::string>> search(const std::shared_ptr<ArrayBuffer>& embedding, double threshold) = 0;
+      virtual std::shared_ptr<Promise<bool>> verify(const std::string& id, const std::shared_ptr<ArrayBuffer>& embedding, double threshold) = 0;
+      virtual std::shared_ptr<Promise<std::vector<SpeakerMatch>>> getBestMatches(const std::shared_ptr<ArrayBuffer>& embedding, double threshold, double n) = 0;
       virtual std::shared_ptr<Promise<void>> unload() = 0;
 
     protected:

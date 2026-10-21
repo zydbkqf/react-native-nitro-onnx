@@ -33,7 +33,7 @@ let package = Package(
       publicHeadersPath: "nitrogen/generated/ios",
       cxxSettings: [
         .headerSearchPath("cpp"),
-        .headerSearchPath("cpp/sherpa-onnx-prebuilt/include"),
+        .headerSearchPath("thirdparty/sherpa-onnx/include"),
         .headerSearchPath("nitrogen/generated/ios"),
         .define("SHERPA_ONNX_ENABLE_TTS", to: "1"),
         .define("SHERPA_ONNX_ENABLE_SPEAKER_DIARIZATION", to: "1")
@@ -45,7 +45,7 @@ let package = Package(
     ),
     .binaryTarget(
       name: "SherpaOnnx",
-      path: "cpp/sherpa-onnx-prebuilt/ios/SherpaOnnxC.xcframework"
+      path: "thirdparty/sherpa-onnx/ios/SherpaOnnxC.xcframework"
     )
   ],
   cxxLanguageStandard: .cxx20

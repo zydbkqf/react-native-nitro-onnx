@@ -88,6 +88,38 @@ std::shared_ptr<Promise<void>> SpeakerManager::removeSpeaker(const std::string& 
   });
 }
 
+std::shared_ptr<Promise<std::string>> SpeakerManager::search(
+    const std::shared_ptr<ArrayBuffer>& embedding, double threshold) {
+  return Promise<std::string>::async([self = shared_cast<SpeakerManager>(), embedding, threshold]() {
+    auto floatEmbedding = bytesToFloatVector(embedding->data(), embedding->size());
+    return self->engine_.search(floatEmbedding, static_cast<float>(threshold));
+  });
+}
+
+std::shared_ptr<Promise<bool>> SpeakerManager::verify(
+    const std::string& id, const std::shared_ptr<ArrayBuffer>& embedding, double threshold) {
+  return Promise<bool>::async([self = shared_cast<SpeakerManager>(), id, embedding, threshold]() {
+    auto floatEmbedding = bytesToFloatVector(embedding->data(), embedding->size());
+    return self->engine_.verify(id, floatEmbedding, static_cast<float>(threshold));
+  });
+}
+
+std::shared_ptr<Promise<std::vector<SpeakerMatch>>> SpeakerManager::getBestMatches(
+    const std::shared_ptr<ArrayBuffer>& embedding, double threshold, double n) {
+  return Promise<std::vector<SpeakerMatch>>::async(
+      [self = shared_cast<SpeakerManager>(), embedding, threshold, n]() {
+        auto floatEmbedding = bytesToFloatVector(embedding->data(), embedding->size());
+        auto matches = self->engine_.getBestMatches(
+            floatEmbedding, static_cast<float>(threshold), static_cast<int32_t>(n));
+        std::vector<SpeakerMatch> result;
+        result.reserve(matches.size());
+        for (const auto& m : matches) {
+          result.emplace_back(m.id, m.name, static_cast<double>(m.score));
+        }
+        return result;
+      });
+}
+
 std::shared_ptr<Promise<void>> SpeakerManager::unload() {
   return Promise<void>::async([self = shared_cast<SpeakerManager>()]() { self->engine_.unload(); });
 }

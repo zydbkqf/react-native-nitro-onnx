@@ -35,6 +35,12 @@ class SpeakerManager : public HybridSpeakerManagerSpec {
       const std::string& path) override;
   std::shared_ptr<Promise<std::vector<RegisteredSpeaker>>> listSpeakers() override;
   std::shared_ptr<Promise<void>> removeSpeaker(const std::string& id) override;
+  std::shared_ptr<Promise<std::string>> search(
+      const std::shared_ptr<ArrayBuffer>& embedding, double threshold) override;
+  std::shared_ptr<Promise<bool>> verify(
+      const std::string& id, const std::shared_ptr<ArrayBuffer>& embedding, double threshold) override;
+  std::shared_ptr<Promise<std::vector<SpeakerMatch>>> getBestMatches(
+      const std::shared_ptr<ArrayBuffer>& embedding, double threshold, double n) override;
   std::shared_ptr<Promise<void>> unload() override;
 
  private:

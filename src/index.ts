@@ -24,14 +24,27 @@ export type {
   Tts,
   SpeakerEmbeddingConfig,
   RegisteredSpeaker,
+  SpeakerMatch,
   SpeakerManager,
+  SpeakerDiarizationConfig,
+  DiarizationSegment,
+  DiarizationResult,
+  SpeakerDiarization,
+  LanguageIdConfig,
+  LanguageIdResult,
+  LanguageId,
+  DenoiserType,
+  SpeechEnhancementConfig,
+  EnhancedAudio,
+  SpeechEnhancement,
   OnnxSpeech,
 } from "./specs/OnnxSpeech.nitro.js";
 
 /**
  * Get the shared OnnxSpeech Nitro module instance.
  * Heavy AI models are loaded on demand and cached as singletons behind
- * the individual hybrid objects (Vad, Asr, Tts, SpeakerManager).
+ * the individual hybrid objects (Vad, Asr, Tts, SpeakerManager,
+ * SpeakerDiarization, LanguageId, SpeechEnhancement).
  */
 export function getOnnxSpeech(): OnnxSpeech {
   return NitroModules.createHybridObject<OnnxSpeech>("NitroOnnxSpeech");

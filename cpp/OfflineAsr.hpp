@@ -24,6 +24,8 @@ class OfflineAsr : public HybridOfflineAsrSpec {
   bool isLoaded() override;
   std::shared_ptr<Promise<AsrResult>> recognize(const std::shared_ptr<ArrayBuffer>& samples) override;
   std::shared_ptr<Promise<AsrResult>> recognizeFile(const std::string& path) override;
+  std::shared_ptr<Promise<AsrResult>> recognizeWithHotwords(
+      const std::shared_ptr<ArrayBuffer>& samples, const std::string& hotwords) override;
   std::shared_ptr<Promise<void>> unload() override;
 
  private:

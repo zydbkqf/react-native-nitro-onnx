@@ -68,8 +68,11 @@ yarn-error.log
 /coverage
 *.tsbuildinfo
 
-# OpenXLSX and its dependencies are downloaded by scripts/prepare-openxlsx.js
-/cpp/sherpa-onnx-prebuilt
+# sherpa-onnx prebuilts are vendored under thirdparty/sherpa-onnx; builds never
+# download them. Android .so, iOS xcframework and headers are committed; the
+# host static libraries under lib/ are only for local host development and are
+# excluded from both git and the npm tarball.
+/thirdparty/sherpa-onnx/lib/
 /cpp/build-*/
 
 # Yarn

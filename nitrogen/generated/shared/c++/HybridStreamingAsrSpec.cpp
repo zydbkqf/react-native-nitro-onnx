@@ -24,6 +24,7 @@ namespace margelo::nitro::onnx::speech {
       prototype.registerHybridMethod("isLoaded", &HybridStreamingAsrSpec::isLoaded);
       prototype.registerHybridMethod("acceptWaveform", &HybridStreamingAsrSpec::acceptWaveform);
       prototype.registerHybridMethod("finalize", &HybridStreamingAsrSpec::finalize);
+      prototype.registerHybridMethod("setHotwords", &HybridStreamingAsrSpec::setHotwords);
       prototype.registerHybridMethod("reset", &HybridStreamingAsrSpec::reset);
       prototype.registerHybridMethod("unload", &HybridStreamingAsrSpec::unload);
     });

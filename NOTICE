@@ -2,7 +2,7 @@ OPEN SOURCE SOFTWARE ATTRIBUTION NOTICE
 This software uses third-party open source components listed below, with full license text attached.
 
 ================================================================================
-1. libharu
+1. sherpa-onnx
 Repository: https://github.com/k2-fsa/sherpa-onnx
 License: Apache License 2.0 (SPDX: Apache-2.0)
 Copyright [yyyy] [name of copyright owner]

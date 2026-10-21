@@ -3,9 +3,12 @@
 // ------------------------------------------------------------------------------
 #include "NitroOnnxSpeech.hpp"
 
+#include "LanguageId.hpp"
 #include "OfflineAsr.hpp"
 #include "ResourceDir.hpp"
+#include "SpeakerDiarization.hpp"
 #include "SpeakerManager.hpp"
+#include "SpeechEnhancement.hpp"
 #include "StreamingAsr.hpp"
 #include "Tts.hpp"
 #include "Vad.hpp"
@@ -43,6 +46,18 @@ std::shared_ptr<HybridTtsSpec> NitroOnnxSpeech::createTts() {
 
 std::shared_ptr<HybridSpeakerManagerSpec> NitroOnnxSpeech::createSpeakerManager() {
   return std::make_shared<SpeakerManager>();
+}
+
+std::shared_ptr<HybridSpeakerDiarizationSpec> NitroOnnxSpeech::createSpeakerDiarization() {
+  return std::make_shared<SpeakerDiarization>();
+}
+
+std::shared_ptr<HybridLanguageIdSpec> NitroOnnxSpeech::createLanguageId() {
+  return std::make_shared<LanguageId>();
+}
+
+std::shared_ptr<HybridSpeechEnhancementSpec> NitroOnnxSpeech::createSpeechEnhancement() {
+  return std::make_shared<SpeechEnhancement>();
 }
 
 std::string NitroOnnxSpeech::getVersion() {
