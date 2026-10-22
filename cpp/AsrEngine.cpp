@@ -199,10 +199,9 @@ void OfflineAsrEngine::load(const AsrEngineConfig& config) {
     c.max_active_paths = config_.maxActivePaths;
 
     std::string hotwordsFile = joinPath(config_.modelDir, config_.hotwordsFile);
-    if (!config_.hotwordsBuf.empty()) {
-      c.hotwords_buf = config_.hotwordsBuf.c_str();
-      c.hotwords_buf_size = static_cast<int32_t>(config_.hotwordsBuf.size());
-    } else if (!config_.hotwordsFile.empty()) {
+    // SherpaOnnxOfflineRecognizerConfig has no hotwords_buf — only hotwords_file.
+    // Config-level hotwordsBuf is applied at stream creation instead.
+    if (!config_.hotwordsFile.empty()) {
       c.hotwords_file = hotwordsFile.c_str();
     }
     c.hotwords_score = config_.hotwordsScore;
@@ -243,9 +242,12 @@ AsrEngineResult OfflineAsrEngine::recognizeWithHotwords(
     throw std::runtime_error("Offline ASR not loaded");
   }
 
-  const SherpaOnnxOfflineStream* stream = hotwords.empty()
-      ? SherpaOnnxCreateOfflineStream(recognizer.get())
-      : SherpaOnnxCreateOfflineStreamWithHotwords(recognizer.get(), hotwords.c_str());
+  const SherpaOnnxOfflineStream* stream = [&]() {
+    const std::string& hw = !hotwords.empty() ? hotwords : config_.hotwordsBuf;
+    return hw.empty()
+        ? SherpaOnnxCreateOfflineStream(recognizer.get())
+        : SherpaOnnxCreateOfflineStreamWithHotwords(recognizer.get(), hw.c_str());
+  }();
   SherpaOnnxAcceptWaveformOffline(stream, 16000, samples.data(), static_cast<int32_t>(samples.size()));
   SherpaOnnxDecodeOfflineStream(recognizer.get(), stream);
 
