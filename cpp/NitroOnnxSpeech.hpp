@@ -5,6 +5,7 @@
 #pragma once
 
 #include <NitroModules/HybridObject.hpp>
+#include <HybridKeywordSpotterSpec.hpp>
 #include <HybridOnnxSpeechSpec.hpp>
 #include <HybridLanguageIdSpec.hpp>
 #include <HybridOfflineAsrSpec.hpp>
@@ -35,6 +36,7 @@ class NitroOnnxSpeech : public HybridOnnxSpeechSpec {
   std::shared_ptr<HybridSpeakerDiarizationSpec> createSpeakerDiarization() override;
   std::shared_ptr<HybridLanguageIdSpec> createLanguageId() override;
   std::shared_ptr<HybridSpeechEnhancementSpec> createSpeechEnhancement() override;
+  std::shared_ptr<HybridKeywordSpotterSpec> createKeywordSpotter() override;
   std::string getVersion() override;
   std::string getQualcommSoc() override;
 };

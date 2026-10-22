@@ -23,6 +23,7 @@ namespace margelo::nitro::onnx::speech {
       prototype.registerHybridMethod("createSpeakerDiarization", &HybridOnnxSpeechSpec::createSpeakerDiarization);
       prototype.registerHybridMethod("createLanguageId", &HybridOnnxSpeechSpec::createLanguageId);
       prototype.registerHybridMethod("createSpeechEnhancement", &HybridOnnxSpeechSpec::createSpeechEnhancement);
+      prototype.registerHybridMethod("createKeywordSpotter", &HybridOnnxSpeechSpec::createKeywordSpotter);
       prototype.registerHybridMethod("getQualcommSoc", &HybridOnnxSpeechSpec::getQualcommSoc);
     });
   }

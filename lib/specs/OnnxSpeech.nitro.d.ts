@@ -450,6 +450,79 @@ export interface SpeechEnhancement extends HybridObject<SpeechPlatforms> {
     reset(): Promise<void>;
     unload(): Promise<void>;
 }
+export interface KeywordSpotterConfig {
+    /** Directory containing all KWS model files. */
+    modelDir: string;
+    /** Path to tokens.txt or equivalent vocabulary file. */
+    tokensPath: string;
+    /** Transducer encoder ONNX file. */
+    encoder: string;
+    /** Transducer decoder ONNX file. */
+    decoder: string;
+    /** Transducer joiner ONNX file. */
+    joiner: string;
+    /**
+     * Keyword definitions file (one keyword per line, e.g.
+     * `y ǎn y uán @演员/zh ī m íng @知名`).
+     */
+    keywordsFile?: string;
+    /**
+     * In-memory keyword definitions in the same format as `keywordsFile`.
+     * When set, overrides `keywordsFile`.
+     */
+    keywordsBuf?: string;
+    /** Bonus score applied to keywords during search. Default: 3.0. */
+    keywordsScore?: number;
+    /** Detection threshold. Larger values are more conservative. Default: 0.1. */
+    keywordsThreshold?: number;
+    /** Max active decoding paths. Default: 4. */
+    maxActivePaths?: number;
+    /** Trailing blank symbols required before trigger finalization. Default: 1. */
+    numTrailingBlanks?: number;
+    numThreads?: number;
+    debug?: boolean;
+    provider?: string;
+}
+export interface KeywordSpotterResult {
+    /** Triggered keyword text. Empty when nothing has triggered yet. */
+    keyword: string;
+    /** Token sequence as a single string. */
+    tokens: string;
+    /** Per-token timestamps in milliseconds. */
+    timestamps?: number[];
+    /** Start time of the current segment in milliseconds. */
+    startMs: number;
+    /** Raw JSON metadata from the recognizer. */
+    json?: string;
+}
+/**
+ * Streaming keyword spotting / wake-word hybrid object.
+ * Feed microphone chunks via `acceptWaveform`; `onKeyword` fires when a
+ * keyword triggers.
+ */
+export interface KeywordSpotter extends HybridObject<SpeechPlatforms> {
+    /** Optional callback invoked when a keyword is detected. */
+    onKeyword?: (result: KeywordSpotterResult) => void;
+    /** Optional callback invoked on KWS errors. */
+    onError?: (error: string) => void;
+    load(config: KeywordSpotterConfig): Promise<void>;
+    isLoaded(): boolean;
+    /** Feed streaming 16 kHz mono f32 PCM audio. */
+    acceptWaveform(samples: ArrayBuffer): Promise<void>;
+    /**
+     * Replace the keyword list for the current stream via
+     * `SherpaOnnxCreateKeywordStreamWithKeywords`. Audio already accepted is
+     * discarded; call this before feeding a new utterance. Pass an empty string
+     * to fall back to the config-level `keywordsFile` / `keywordsBuf`.
+     */
+    setKeywords(keywords: string): Promise<void>;
+    /**
+     * Reset the decoding stream. Call this after a trigger (or to start over)
+     * so the next keyword can be detected independently.
+     */
+    reset(): Promise<void>;
+    unload(): Promise<void>;
+}
 export interface OnnxSpeech extends HybridObject<SpeechPlatforms> {
     /** Create a VAD instance. */
     createVad(): Vad;
@@ -467,6 +540,8 @@ export interface OnnxSpeech extends HybridObject<SpeechPlatforms> {
     createLanguageId(): LanguageId;
     /** Create a speech enhancement (denoising) instance. */
     createSpeechEnhancement(): SpeechEnhancement;
+    /** Create a streaming keyword spotter / wake-word detector. */
+    createKeywordSpotter(): KeywordSpotter;
     /** Get the module version. */
     readonly version: string;
     /** Returns the Qualcomm SoC model (e.g. "SM8550") on Android, or empty string on iOS / non-Qualcomm. */

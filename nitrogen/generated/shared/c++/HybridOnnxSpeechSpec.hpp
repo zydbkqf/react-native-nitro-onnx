@@ -29,6 +29,8 @@ namespace margelo::nitro::onnx::speech { class HybridSpeakerDiarizationSpec; }
 namespace margelo::nitro::onnx::speech { class HybridLanguageIdSpec; }
 // Forward declaration of `HybridSpeechEnhancementSpec` to properly resolve imports.
 namespace margelo::nitro::onnx::speech { class HybridSpeechEnhancementSpec; }
+// Forward declaration of `HybridKeywordSpotterSpec` to properly resolve imports.
+namespace margelo::nitro::onnx::speech { class HybridKeywordSpotterSpec; }
 
 #include <string>
 #include <memory>
@@ -40,6 +42,7 @@ namespace margelo::nitro::onnx::speech { class HybridSpeechEnhancementSpec; }
 #include "HybridSpeakerDiarizationSpec.hpp"
 #include "HybridLanguageIdSpec.hpp"
 #include "HybridSpeechEnhancementSpec.hpp"
+#include "HybridKeywordSpotterSpec.hpp"
 
 namespace margelo::nitro::onnx::speech {
 
@@ -80,6 +83,7 @@ namespace margelo::nitro::onnx::speech {
       virtual std::shared_ptr<HybridSpeakerDiarizationSpec> createSpeakerDiarization() = 0;
       virtual std::shared_ptr<HybridLanguageIdSpec> createLanguageId() = 0;
       virtual std::shared_ptr<HybridSpeechEnhancementSpec> createSpeechEnhancement() = 0;
+      virtual std::shared_ptr<HybridKeywordSpotterSpec> createKeywordSpotter() = 0;
       virtual std::string getQualcommSoc() = 0;
 
     protected:

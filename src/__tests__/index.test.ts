@@ -14,6 +14,7 @@ import type {
   SpeakerDiarization,
   LanguageId,
   SpeechEnhancement,
+  KeywordSpotter,
 } from "../specs/OnnxSpeech.nitro";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -102,6 +103,15 @@ describe("react-native-nitro-onnx public API", () => {
     unload: jest.fn(async () => {}),
   } as unknown as SpeechEnhancement;
 
+  const mockKeywordSpotter: KeywordSpotter = {
+    load: jest.fn(async () => {}),
+    isLoaded: jest.fn(() => false),
+    acceptWaveform: jest.fn(async () => {}),
+    setKeywords: jest.fn(async () => {}),
+    reset: jest.fn(async () => {}),
+    unload: jest.fn(async () => {}),
+  } as unknown as KeywordSpotter;
+
   const mockOnnxSpeech: OnnxSpeech = {
     createVad: jest.fn(() => mockVad),
     createOfflineAsr: jest.fn(() => mockOfflineAsr),
@@ -111,6 +121,7 @@ describe("react-native-nitro-onnx public API", () => {
     createSpeakerDiarization: jest.fn(() => mockSpeakerDiarization),
     createLanguageId: jest.fn(() => mockLanguageId),
     createSpeechEnhancement: jest.fn(() => mockSpeechEnhancement),
+    createKeywordSpotter: jest.fn(() => mockKeywordSpotter),
     version: packageVersion,
   } as unknown as OnnxSpeech;
 
@@ -138,6 +149,7 @@ describe("react-native-nitro-onnx public API", () => {
     expect(speech.createSpeakerDiarization()).toBe(mockSpeakerDiarization);
     expect(speech.createLanguageId()).toBe(mockLanguageId);
     expect(speech.createSpeechEnhancement()).toBe(mockSpeechEnhancement);
+    expect(speech.createKeywordSpotter()).toBe(mockKeywordSpotter);
   });
 
   it("exposes hotword APIs on ASR", async () => {
@@ -149,6 +161,17 @@ describe("react-native-nitro-onnx public API", () => {
     const streaming = speech.createStreamingAsr();
     await streaming.setHotwords("▁HELLO");
     expect(mockStreamingAsr.setHotwords).toHaveBeenCalledWith("▁HELLO");
+  });
+
+  it("exposes keyword spotting APIs", async () => {
+    const speech = getOnnxSpeech();
+    const kws = speech.createKeywordSpotter();
+    await kws.acceptWaveform(new ArrayBuffer(0));
+    await kws.setKeywords("y ǎn y uán @演员");
+    await kws.reset();
+    expect(mockKeywordSpotter.acceptWaveform).toHaveBeenCalled();
+    expect(mockKeywordSpotter.setKeywords).toHaveBeenCalledWith("y ǎn y uán @演员");
+    expect(mockKeywordSpotter.reset).toHaveBeenCalled();
   });
 
   it("exposes speaker search / verify / getBestMatches", async () => {

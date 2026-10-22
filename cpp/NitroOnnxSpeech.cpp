@@ -3,6 +3,7 @@
 // ------------------------------------------------------------------------------
 #include "NitroOnnxSpeech.hpp"
 
+#include "KeywordSpotter.hpp"
 #include "LanguageId.hpp"
 #include "OfflineAsr.hpp"
 #include "ResourceDir.hpp"
@@ -58,6 +59,10 @@ std::shared_ptr<HybridLanguageIdSpec> NitroOnnxSpeech::createLanguageId() {
 
 std::shared_ptr<HybridSpeechEnhancementSpec> NitroOnnxSpeech::createSpeechEnhancement() {
   return std::make_shared<SpeechEnhancement>();
+}
+
+std::shared_ptr<HybridKeywordSpotterSpec> NitroOnnxSpeech::createKeywordSpotter() {
+  return std::make_shared<KeywordSpotter>();
 }
 
 std::string NitroOnnxSpeech::getVersion() {

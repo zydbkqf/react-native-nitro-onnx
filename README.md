@@ -5,6 +5,7 @@ A React Native [Nitro Module](https://nitro.margelo.com) that wraps [sherpa-onnx
 - **ASR** (Automatic Speech Recognition) - offline and streaming, with **hotword biasing**
 - **TTS** (Text-to-Speech)
 - **VAD** (Voice Activity Detection) with sliding pre-buffer
+- **Keyword spotting** - streaming wake-word detection
 - **Voice cloning** via speaker embeddings and reference-audio TTS
 - **Speaker identification** - search / verify / best-matches over enrolled speakers
 - **Speaker diarization** - who spoke when
@@ -42,6 +43,7 @@ All audio I/O uses zero-copy `ArrayBuffer` with **16 kHz mono f32 PCM**.
 - [Installation](#installation)
 - [Usage](#usage)
 - [Hotwords](#hotwords)
+- [Keyword Spotting](#keyword-spotting)
 - [Execution Providers](#execution-providers)
 - [VAD Pre-buffer](#vad-pre-buffer)
 - [Voice Cloning](#voice-cloning)
@@ -63,14 +65,16 @@ All audio I/O uses zero-copy `ArrayBuffer` with **16 kHz mono f32 PCM**.
 │                    createSpeakerManager() /                  │
 │                    createSpeakerDiarization() /              │
 │                    createLanguageId() /                      │
-│                    createSpeechEnhancement()                 │
+│                    createSpeechEnhancement() /               │
+│                    createKeywordSpotter()                    │
 └──────────────────────┬──────────────────────────────────────┘
 │  react-native-nitro-modules (zero-copy ArrayBuffer)
 ┌──────────────────────┴──────────────────────────────────────┐
 │                         C++                                 │
 │  NitroOnnxSpeech → Vad / OfflineAsr / StreamingAsr / Tts /  │
 │                    SpeakerManager / SpeakerDiarization /    │
-│                    LanguageId / SpeechEnhancement           │
+│                    LanguageId / SpeechEnhancement /         │
+│                    KeywordSpotter                           │
 │  ModelSingleton caches heavy recognizer / TTS instances     │
 └──────────────────────┬──────────────────────────────────────┘
 │  sherpa-onnx C API
@@ -81,7 +85,7 @@ All audio I/O uses zero-copy `ArrayBuffer` with **16 kHz mono f32 PCM**.
 
 Key design decisions:
 
-- **Singleton preloading:** `OfflineAsrEngine`, `StreamingAsrEngine`, `TtsEngine`, `SpeakerEngine`, `SpeakerDiarizationEngine`, `LanguageIdEngine` and `SpeechEnhancementEngine` use `ModelSingleton`. The cache key covers model dir, type, provider, thread count and other identity-relevant options, so loading the same configuration twice returns the same native instance while a changed option creates a new one.
+- **Singleton preloading:** `OfflineAsrEngine`, `StreamingAsrEngine`, `TtsEngine`, `SpeakerEngine`, `SpeakerDiarizationEngine`, `LanguageIdEngine`, `SpeechEnhancementEngine` and `KeywordSpotterEngine` use `ModelSingleton`. The cache key covers model dir, type, provider, thread count and other identity-relevant options, so loading the same configuration twice returns the same native instance while a changed option creates a new one.
 - **Background inference:** Every heavy operation runs on a background task pool provided by `react-native-nitro-modules` (`Promise::async`) so the JS thread never blocks. VAD additionally uses a dedicated processor thread for streaming segmentation.
 - **External model download:** The module does not bundle an internal downloader. Download model files in the background with a library such as [`@kesha-antonov/react-native-background-downloader`](https://github.com/kesha-antonov/react-native-background-downloader), then pass the local file paths to `load()` / `initialize()`.
 - **Zero-copy audio:** `ArrayBuffer` is the only audio transport format; samples are expected to be 16 kHz mono little-endian f32 PCM.
@@ -128,6 +132,7 @@ Pretrained sherpa-onnx model families are published as GitHub release assets. Do
 - **Speaker embedding / diarization:** https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models
 - **Spoken language identification:** use a Whisper model from the ASR models tag (`sherpa-onnx-whisper-tiny`)
 - **Speech enhancement:** https://github.com/k2-fsa/sherpa-onnx/releases/tag/speech-enhancement-models
+- **Keyword spotting:** https://github.com/k2-fsa/sherpa-onnx/releases/tag/kws-models
 
 > The Silero VAD model (`silero_vad.onnx`) is bundled with the module, so no separate download is required for VAD.
 
@@ -279,6 +284,17 @@ slid/
 ```
 denoiser/
   gtcrn_simple.onnx    # or a DPDFNet model
+```
+
+### Keyword spotting
+
+```
+kws/
+  encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx
+  decoder-epoch-12-avg-2-chunk-16-left-64.onnx
+  joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx
+  tokens.txt
+  keywords.txt
 ```
 
 ## Installation
@@ -460,6 +476,80 @@ await streaming.acceptWaveform(chunk);
 const final = await streaming.finalize();
 ```
 
+## Keyword Spotting
+
+Streaming wake-word / keyword detection. Feed microphone chunks continuously; `onKeyword` fires when a keyword triggers. Backed by sherpa-onnx's keyword spotter (`SherpaOnnxCreateKeywordSpotter`).
+
+`acceptWaveform` drains every ready frame (`while (IsKeywordStreamReady)`) so a single large chunk does not back up the decoder — if several keywords land in one chunk, `onKeyword` fires once per trigger. For lowest latency prefer feeding VAD-sized frames (10–30 ms). `onError` fires on streaming failures (`acceptWaveform` / `setKeywords` / `reset` / `unload`); the corresponding promise still rejects.
+
+### Model files
+
+```
+kws/
+  encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx
+  decoder-epoch-12-avg-2-chunk-16-left-64.onnx
+  joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx
+  tokens.txt
+  keywords.txt
+```
+
+A good starting model is [`sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile`](https://github.com/k2-fsa/sherpa-onnx/releases/tag/kws-models).
+
+### Keyword format
+
+One keyword per line. Each entry is a token sequence plus optional surface form:
+
+```
+y ǎn y uán @演员
+zh ī m íng @知名
+```
+
+Provide them via `keywordsFile` (path on device) or `keywordsBuf` (in-memory string; overrides the file).
+
+### Example
+
+```typescript
+const kws = speech.createKeywordSpotter();
+await kws.load({
+  modelDir: `${RNFS.DocumentDirectoryPath}/kws`,
+  tokensPath: `${modelDir}/tokens.txt`,
+  encoder: `${modelDir}/encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx`,
+  decoder: `${modelDir}/decoder-epoch-12-avg-2-chunk-16-left-64.onnx`,
+  joiner: `${modelDir}/joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx`,
+  keywordsFile: `${modelDir}/keywords.txt`,
+  // keywordsBuf: "y ǎn y uán @演员",
+  keywordsScore: 3.0,
+  keywordsThreshold: 0.1,
+  numThreads: 2,
+});
+
+kws.onKeyword = (result) => {
+  console.log("wake word:", result.keyword, "at", result.startMs, "ms");
+  // Reset is done automatically after a trigger; call kws.reset() to start over.
+};
+kws.onError = (error) => console.error(error);
+
+// Feed microphone chunks (16 kHz mono f32 PCM).
+await kws.acceptWaveform(chunk);
+```
+
+### Runtime keyword updates
+
+`setKeywords(keywords)` swaps the keyword list for the current stream via `SherpaOnnxCreateKeywordStreamWithKeywords`. Audio already accepted is discarded, so call it before feeding a new utterance. Pass `""` to fall back to the config-level list.
+
+```typescript
+await kws.setKeywords("n i t r o @Nitro/m ó d u l e @Module");
+```
+
+### Tuning
+
+| Field | Default | Meaning |
+|---|---|---|
+| `keywordsScore` | `3.0` | Bonus score applied to keywords during search |
+| `keywordsThreshold` | `0.1` | Detection threshold; larger is more conservative |
+| `numTrailingBlanks` | `1` | Trailing blank symbols required before trigger finalization |
+| `maxActivePaths` | `4` | Max active decoding paths |
+
 ## Execution Providers
 
 By default, the module selects a platform-appropriate execution provider:
@@ -467,6 +557,10 @@ By default, the module selects a platform-appropriate execution provider:
 - **Android (no QNN SDK):** `nnapi` — NNAPI with CPU fallback.
 - **Android (built with `QNN_ROOT`):** `qnn` — Qualcomm HTP via QNN; unsupported operators fall back to CPU.
 - **iOS:** `coreml` — Apple Neural Engine via CoreML; unsupported operators fall back to CPU.
+
+> ⚠️ **Models that do not support NNAPI / CoreML / QNN can throw at load or inference time.**
+>
+> The CPU fallback only covers individual unsupported operators. If the whole model (or its op set) is incompatible with the NPU execution provider, `load()` or the first inference call may fail with an ONNX Runtime error instead of degrading gracefully. When that happens, **explicitly set `provider: "cpu"`** — there is no automatic retry on a different provider.
 
 To disable NPU acceleration and force CPU-only inference, pass `provider: "cpu"` explicitly:
 
@@ -477,6 +571,8 @@ await asr.load({
   provider: "cpu",
 });
 ```
+
+This applies to every `load()` / `initialize()` that accepts a `provider` field: `AsrModelConfig`, `TtsModelConfig`, `KeywordSpotterConfig`, `SpeakerDiarizationConfig`, `LanguageIdConfig` and `SpeechEnhancementConfig`.
 
 ### Qualcomm SoC Detection
 
@@ -703,6 +799,7 @@ Every native inference task runs on a background thread pool (`Promise::async` f
 - Speaker diarization
 - Spoken language identification
 - Speech enhancement
+- Keyword spotting
 
 JS calls return promises that resolve on the JS thread when the background work completes. Native event callbacks (VAD speech start/end, streaming partial/final results, ASR/TTS errors) are dispatched to JS without blocking inference.
 
