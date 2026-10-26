@@ -254,20 +254,42 @@ export interface TtsResult {
     /** Duration in milliseconds. */
     durationMs: number;
 }
+/**
+ * Zero-shot / voice-cloning reference used by Pocket and ZipVoice.
+ * Pocket needs `samples` only; ZipVoice also needs `text` (the transcript of
+ * the reference audio).
+ */
+export interface TtsReference {
+    /** Reference audio as mono f32 PCM. */
+    samples: ArrayBuffer;
+    /** Sample rate of `samples` in Hz. Default: 16000. */
+    sampleRate?: number;
+    /**
+     * Transcript of the reference audio.
+     * Required by ZipVoice; ignored by Pocket.
+     */
+    text?: string;
+}
 /** Text-to-speech hybrid object. */
 export interface Tts extends HybridObject<SpeechPlatforms> {
     load(config: TtsModelConfig): Promise<void>;
     isLoaded(): boolean;
-    /** Synthesize text into audio on a background thread. Optional speed override. */
-    synthesize(text: string, speed?: number): Promise<TtsResult>;
+    /**
+     * Synthesize text into audio on a background thread. Optional speed override.
+     * Pass `reference` for zero-shot voice cloning (Pocket / ZipVoice).
+     */
+    synthesize(text: string, speed?: number, reference?: TtsReference): Promise<TtsResult>;
     /**
      * Synthesize with a speaker reference.
      * `speakerId` is either a numeric model speaker index ("0", "1", ... for
      * Kokoro/VITS multi-speaker) or a registered speaker ID from
      * `registerSpeaker` / `registerSpeakerFromFile` (zero-shot models such as
-     * Pocket require the reference audio stored by `registerSpeakerFromFile`).
+     * Pocket / ZipVoice require the reference audio stored by
+     * `registerSpeakerFromFile`).
+     * `referenceText` is the transcript of that stored reference audio and is
+     * required by ZipVoice.
      */
-    synthesizeWithSpeaker(text: string, speakerId: string, speed?: number): Promise<TtsResult>;
+    synthesizeWithSpeaker(text: string, speakerId: string, speed?: number, referenceText?: string): Promise<TtsResult>;
     /** Save TTS result as a WAV file at the given path. */
     saveWav(result: TtsResult, path: string): Promise<void>;
     unload(): Promise<void>;

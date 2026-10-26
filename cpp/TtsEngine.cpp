@@ -186,10 +186,18 @@ TtsEngineResult TtsEngine::synthesize(
   genConfig.sid = sid;
   genConfig.speed = playbackSpeed;
   if (referenceAudio != nullptr && !referenceAudio->samples.empty()) {
+    if (config_.type == TtsModelType::ZIPVOICE && referenceAudio->text.empty()) {
+      throw std::invalid_argument(
+          "ZipVoice requires referenceText (the transcript of the reference audio)");
+    }
     genConfig.reference_audio = referenceAudio->samples.data();
     genConfig.reference_audio_len = static_cast<int32_t>(referenceAudio->samples.size());
     genConfig.reference_sample_rate =
         referenceAudio->sampleRate > 0 ? referenceAudio->sampleRate : 16000;
+    // ZipVoice conditions on the prompt transcript; Pocket ignores it.
+    if (!referenceAudio->text.empty()) {
+      genConfig.reference_text = referenceAudio->text.c_str();
+    }
   }
 
   const SherpaOnnxGeneratedAudio* audio = SherpaOnnxOfflineTtsGenerateWithConfig(

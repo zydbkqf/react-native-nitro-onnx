@@ -21,6 +21,7 @@ export type {
   TtsModelType,
   TtsModelConfig,
   TtsResult,
+  TtsReference,
   Tts,
   SpeakerEmbeddingConfig,
   RegisteredSpeaker,

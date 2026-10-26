@@ -64,10 +64,14 @@ struct TtsEngineResult {
   double durationMs = 0.0;
 };
 
-/** Optional zero-shot reference audio for voice-cloning models (e.g. Pocket). */
+/** Optional zero-shot reference for voice-cloning models (Pocket / ZipVoice). */
 struct TtsReferenceAudio {
   std::vector<float> samples;
   int32_t sampleRate = 16000;
+  /**
+   * Transcript of `samples`. Required by ZipVoice; ignored by Pocket.
+   */
+  std::string text;
 };
 
 /** Text-to-speech engine. */

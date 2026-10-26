@@ -74,47 +74,76 @@ bool Tts::isLoaded() {
   return engine_.isLoaded();
 }
 
-std::shared_ptr<Promise<TtsResult>> Tts::synthesize(const std::string& text, std::optional<double> speed) {
-  return Promise<TtsResult>::async([self = shared_cast<Tts>(), text, speed]() {
-    float spd = speed.has_value() ? static_cast<float>(speed.value()) : -1.0f;
-    return toTtsResult(self->engine_.synthesize(text, -1, spd));
-  });
+std::shared_ptr<Promise<TtsResult>> Tts::synthesize(
+    const std::string& text,
+    std::optional<double> speed,
+    const std::optional<TtsReference>& reference) {
+  return Promise<TtsResult>::async(
+      [self = shared_cast<Tts>(), text, speed, reference]() {
+        if (text.empty()) {
+          throw std::invalid_argument("TTS text must not be empty");
+        }
+        float spd = speed.has_value() ? static_cast<float>(speed.value()) : -1.0f;
+
+        std::optional<TtsReferenceAudio> nativeRef;
+        if (reference.has_value()) {
+          const TtsReference& ref = reference.value();
+          if (ref.samples == nullptr || ref.samples->size() == 0) {
+            throw std::invalid_argument("reference.samples must not be empty");
+          }
+          TtsReferenceAudio audio;
+          audio.samples = bytesToFloatVector(ref.samples->data(), ref.samples->size());
+          audio.sampleRate = ref.sampleRate.has_value() && ref.sampleRate.value() > 0
+                                 ? static_cast<int32_t>(ref.sampleRate.value())
+                                 : 16000;
+          audio.text = ref.text.value_or("");
+          nativeRef = std::move(audio);
+        }
+
+        return toTtsResult(self->engine_.synthesize(
+            text, -1, spd, nativeRef.has_value() ? &nativeRef.value() : nullptr));
+      });
 }
 
 std::shared_ptr<Promise<TtsResult>> Tts::synthesizeWithSpeaker(
     const std::string& text,
     const std::string& speakerId,
-    std::optional<double> speed) {
-  return Promise<TtsResult>::async([self = shared_cast<Tts>(), text, speakerId, speed]() {
-    if (text.empty()) {
-      throw std::invalid_argument("TTS text must not be empty");
-    }
-    if (speakerId.empty()) {
-      throw std::invalid_argument("speakerId must not be empty");
-    }
-    float spd = speed.has_value() ? static_cast<float>(speed.value()) : -1.0f;
+    std::optional<double> speed,
+    const std::optional<std::string>& referenceText) {
+  return Promise<TtsResult>::async(
+      [self = shared_cast<Tts>(), text, speakerId, speed, referenceText]() {
+        if (text.empty()) {
+          throw std::invalid_argument("TTS text must not be empty");
+        }
+        if (speakerId.empty()) {
+          throw std::invalid_argument("speakerId must not be empty");
+        }
+        float spd = speed.has_value() ? static_cast<float>(speed.value()) : -1.0f;
+        const std::string refText = referenceText.value_or("");
 
-    // Numeric IDs are model-internal speaker indices (Kokoro / VITS multi-speaker).
-    int32_t sid = -1;
-    if (tryParseSpeakerIndex(speakerId, sid)) {
-      return toTtsResult(self->engine_.synthesize(text, sid, spd));
-    }
+        // Numeric IDs are model-internal speaker indices (Kokoro / VITS multi-speaker).
+        int32_t sid = -1;
+        if (tryParseSpeakerIndex(speakerId, sid)) {
+          return toTtsResult(self->engine_.synthesize(text, sid, spd));
+        }
 
-    // String IDs refer to registered speakers (voice-cloning path).
-    const SpeakerEngineRegisteredSpeaker record =
-        readSpeakerRecord(speakerId, speakerFilePath(speakerId));
-    if (!record.referenceAudio.empty()) {
-      TtsReferenceAudio reference;
-      reference.samples = record.referenceAudio;
-      reference.sampleRate = record.referenceSampleRate > 0 ? record.referenceSampleRate : 16000;
-      return toTtsResult(self->engine_.synthesize(text, -1, spd, &reference));
-    }
+        // String IDs refer to registered speakers (voice-cloning path).
+        const SpeakerEngineRegisteredSpeaker record =
+            readSpeakerRecord(speakerId, speakerFilePath(speakerId));
+        if (!record.referenceAudio.empty()) {
+          TtsReferenceAudio reference;
+          reference.samples = record.referenceAudio;
+          reference.sampleRate =
+              record.referenceSampleRate > 0 ? record.referenceSampleRate : 16000;
+          reference.text = refText;
+          return toTtsResult(self->engine_.synthesize(text, -1, spd, &reference));
+        }
 
-    throw std::invalid_argument(
-        "Speaker \"" + speakerId + "\" was registered from an embedding only. "
-        "Zero-shot TTS needs reference audio — use registerSpeakerFromFile(). "
-        "For multi-speaker models (kokoro/vits), pass a numeric speaker index instead.");
-  });
+        throw std::invalid_argument(
+            "Speaker \"" + speakerId + "\" was registered from an embedding only. "
+            "Zero-shot TTS needs reference audio — use registerSpeakerFromFile(). "
+            "For multi-speaker models (kokoro/vits), pass a numeric speaker index instead.");
+      });
 }
 
 std::shared_ptr<Promise<void>> Tts::saveWav(const TtsResult& result, const std::string& path) {

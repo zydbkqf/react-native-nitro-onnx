@@ -116,8 +116,8 @@ Key design decisions:
 | Kokoro | `kokoro` | internal | High, multi-speaker | Medium | Needs `model.onnx`, `voices.bin`, `tokens.txt`, `lexicon.txt` |
 | VITS | `vits` | internal | High quality | Medium | Needs `model.onnx`, `tokens.txt`, optional lexicon |
 | Matcha | `matcha` | external (e.g. Hifigan) | Fast, natural | Fast | Needs acoustic model + vocoder ONNX |
-| Pocket | `pocket` | internal | Lightweight zero-shot | Very fast | Multi-file (lm / encoder / decoder, see below) |
-| ZipVoice | `zipvoice` | internal | Dedicated encoder/decoder | Fast | Needs `zipvoiceEncoder`, `zipvoiceDecoder`, vocoder, tokens |
+| Pocket | `pocket` | internal | Lightweight zero-shot | Very fast | Multi-file (lm / encoder / decoder, see below). Voice-cloned from a reference audio prompt |
+| ZipVoice | `zipvoice` | internal | Dedicated encoder/decoder | Fast | Needs `zipvoiceEncoder`, `zipvoiceDecoder`, vocoder, tokens. Voice-cloned from a reference audio + transcript prompt |
 
 ### VAD
 
@@ -129,7 +129,7 @@ Pretrained sherpa-onnx model families are published as GitHub release assets. Do
 
 - **TTS models:** https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models
 - **ASR models:** https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models
-- **Speaker embedding / diarization:** https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models
+- **Speaker embedding / diarization:** https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models (e.g. `3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx`)
 - **Spoken language identification:** use a Whisper model from the ASR models tag (`sherpa-onnx-whisper-tiny`)
 - **Speech enhancement:** https://github.com/k2-fsa/sherpa-onnx/releases/tag/speech-enhancement-models
 - **Keyword spotting:** https://github.com/k2-fsa/sherpa-onnx/releases/tag/kws-models
@@ -260,18 +260,45 @@ zipvoice/
 
 ```
 speaker/
-  model.onnx
+  3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx
 ```
 
-### Speaker diarization
+This is a **speaker embedding (speaker verification) model**, not a TTS or ASR model. `SpeakerManager` / `SpeakerEngine` uses it to turn a short voice clip into a fixed-length embedding vector for identity operations (`registerSpeaker`, `registerSpeakerFromFile`, `computeEmbedding`, `search`, `verify`, `getBestMatches`).
+
+A good default is **`3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx`** from the [3D-Speaker](https://github.com/modelscope/3D-Speaker) **ERes2Net** family (shipped in the sherpa-onnx [speaker-recongition-models](https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models) release). It is a 16 kHz speaker-verification model that produces robust embeddings even from a few seconds of audio. Any other sherpa-onnx speaker embedding model works too (e.g. `3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx` — CAM++, or the WeSpeaker / NeMo Titanet variants); just pass its path as `model`.
+
+> **When is this model required?**
+>
+> | Use case | Needs speech_eres2net / embedding model? |
+> |---|---|
+> | Pocket / ZipVoice zero-shot via `tts.synthesize(text, speed, reference)` | **No** — the TTS model consumes the raw reference audio itself |
+> | `tts.synthesizeWithSpeaker(text, registeredId)` with a registered speaker | **Yes** — `registerSpeakerFromFile` computes an embedding and stores the reference audio in one record |
+> | Speaker ID: `search` / `verify` / `getBestMatches` / `computeEmbedding` | **Yes** |
+>
+> In short: pure Pocket/ZipVoice prompt cloning does not need it; anything that goes through `SpeakerManager` does.
+
+Pass it via `SpeakerEmbeddingConfig.model`:
+
+```typescript
+const speaker = speech.createSpeakerManager();
+await speaker.load({
+  modelDir: `${RNFS.DocumentDirectoryPath}/speaker`,
+  model: "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
+  numThreads: 4,
+});
+```
+
+### Speaker diarization (model files)
 
 ```
 diarization/
   segmentation.onnx    # pyannote-style segmentation model
-  embedding.onnx       # speaker embedding extractor
+  embedding.onnx       # speaker embedding extractor (e.g. speech_eres2net / campplus)
 ```
 
-### Spoken language identification
+The diarization `embedding.onnx` is the same class of model as the `SpeakerManager` embedding model above (e.g. `3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx`). The two stages use it differently: diarization extracts embeddings for every speech segment to cluster them into speakers, while `SpeakerManager` extracts embeddings for enrollment / search. You can share one ONNX file between both if you want.
+
+### Spoken language identification (model files)
 
 ```
 slid/
@@ -279,14 +306,14 @@ slid/
   tiny-decoder.int8.onnx
 ```
 
-### Speech enhancement
+### Speech enhancement (model files)
 
 ```
 denoiser/
   gtcrn_simple.onnx    # or a DPDFNet model
 ```
 
-### Keyword spotting
+### Keyword spotting (model files)
 
 ```
 kws/
@@ -409,6 +436,12 @@ await tts.load({
 // Synthesize with optional per-call speed override
 const audio = await tts.synthesize("Hello, this is a test.", 0.9);
 // audio.samples is an ArrayBuffer of f32 PCM at audio.sampleRate.
+
+// Zero-shot voice cloning (Pocket / ZipVoice): pass a reference prompt
+// const cloned = await tts.synthesize("Hello, I am Alice.", 1.0, {
+//   samples: promptPcm,          // mono f32 PCM of the reference voice
+//   text: "Hello, I am Alice.",  // transcript of promptPcm — required by ZipVoice
+// });
 
 // Save to WAV file
 await tts.saveWav(audio, "/path/to/output.wav");
@@ -639,24 +672,96 @@ Registered speakers are stored under the platform document directory (`Applicati
 
 Two voice-cloning paths are exposed:
 
-1. **Speaker embedding registration** — compute an embedding from reference audio, store it locally. Embeddings are kept for identity / search; they are not a model speaker index.
-2. **Reference-audio TTS** — models that support prompt-based or zero-shot synthesis (e.g. Pocket) receive stored reference audio during synthesis. Register with `registerSpeakerFromFile` so the reference audio is kept alongside the embedding.
+1. **Speaker embedding registration** — compute an embedding from reference audio, store it locally. Embeddings are kept for identity / search; they are not a model speaker index. This path requires a **speaker embedding model** (e.g. `3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx`) to be loaded via `SpeakerManager.load()` — see [Speaker embedding](#speaker-embedding-voice-cloning--identification).
+2. **Reference-audio TTS** — models that support prompt-based or zero-shot synthesis (Pocket, ZipVoice) receive reference audio during synthesis. Either pass it inline via `synthesize(text, speed, reference)` (no embedding model needed), or register with `registerSpeakerFromFile` so the reference audio is kept alongside the embedding and reused through `synthesizeWithSpeaker`.
+
+> **Note:** `registerSpeakerFromFile` always runs the embedding model, because the stored record holds both the embedding and the reference audio. If you only want Pocket/ZipVoice prompt cloning and no speaker identification, use `tts.synthesize(..., reference)` directly and skip `SpeakerManager` entirely.
+
+### Pocket / ZipVoice zero-shot synthesis
+
+Pocket and ZipVoice are **prompt-conditioned** TTS models: they clone a voice from a short reference clip instead of selecting a fixed speaker ID. They differ in what the prompt requires:
+
+| Model | `reference.samples` | `reference.text` | Notes |
+|---|---|---|---|
+| **Pocket** (`pocket`) | Required | Not used | Audio-only voice prompt. Fast, lightweight zero-shot. |
+| **ZipVoice** (`zipvoice`) | Required | **Required** | The prompt must include the transcript of the reference audio. Native code rejects the call when `text` is missing. |
+
+`tts.synthesize` accepts an optional `TtsReference`:
+
+```typescript
+export interface TtsReference {
+  /** Reference audio as mono f32 PCM. */
+  samples: ArrayBuffer;
+  /** Sample rate of `samples` in Hz. Default: 16000. */
+  sampleRate?: number;
+  /** Transcript of the reference audio. Required by ZipVoice; ignored by Pocket. */
+  text?: string;
+}
+```
+
+**Pocket** — pass the prompt audio only:
+
+```typescript
+const tts = speech.createTts();
+await tts.load({ type: "pocket", modelDir, /* lmMain / lmFlow / pocketEncoder / ... */ });
+
+const promptPcm: ArrayBuffer = /* 16 kHz mono f32 PCM of the reference voice */;
+const audio = await tts.synthesize("Hello, I am Alice.", 1.0, {
+  samples: promptPcm,
+});
+```
+
+**ZipVoice** — pass the prompt audio **and** its transcript:
+
+```typescript
+const tts = speech.createTts();
+await tts.load({ type: "zipvoice", modelDir, /* zipvoiceEncoder / zipvoiceDecoder / vocoder / ... */ });
+
+const promptPcm: ArrayBuffer = /* 16 kHz mono f32 PCM of the reference voice */;
+const audio = await tts.synthesize("你好，我是 Alice。", 1.0, {
+  samples: promptPcm,
+  text: "你好，我是 Alice。", // transcript of promptPcm — required by ZipVoice
+});
+```
+
+You can also route through a registered speaker. `synthesizeWithSpeaker` loads the stored reference audio from the record and takes the prompt transcript as its last argument (required by ZipVoice):
+
+```typescript
+const speaker = speech.createSpeakerManager();
+await speaker.load({
+  modelDir: "/path/to/speaker",
+  model: "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
+  numThreads: 4,
+});
+
+// Keep the reference audio for synthesis
+const registered = await speaker.registerSpeakerFromFile("speaker-1", "Alice", "/path/to/alice.wav");
+
+// Pocket: reference audio only
+const pocketAudio = await tts.synthesizeWithSpeaker("Hello, I am Alice.", registered.id, 1.1);
+
+// ZipVoice: reference audio + its transcript
+const zipAudio = await tts.synthesizeWithSpeaker(
+  "Hello, I am Alice.",
+  registered.id,
+  1.1,
+  "Hello, I am Alice." // transcript of the registered reference audio
+);
+```
+
+> **Tips**
+> - Keep the reference clip short (about 3–10 s) and clean; both models copy prosody and timbre from it.
+> - `reference.samples` is **f32 PCM** (same format as every other audio buffer in this module). Use `registerSpeakerFromFile` when your source is a WAV/CAF file on disk.
+> - ZipVoice quality depends on `reference.text` matching the prompt audio exactly; a mismatched transcript degrades the clone.
 
 `synthesizeWithSpeaker` accepts **two kinds of `speakerId`**:
 
 | `speakerId` | Meaning | Typical models |
 |---|---|---|
 | Numeric string, e.g. `"0"` | Model-internal speaker index | Kokoro / VITS multi-speaker |
-| Registered ID, e.g. `"speaker-1"` | Voice-cloning record (needs reference audio) | Pocket (zero-shot) |
+| Registered ID, e.g. `"speaker-1"` | Voice-cloning record (needs reference audio) | Pocket / ZipVoice (zero-shot) |
 
 ```typescript
-const speaker = speech.createSpeakerManager();
-await speaker.load({ modelDir: "/path/to/speaker", model: "model.onnx", numThreads: 4 });
-
-// Zero-shot clone (Pocket): keep the reference audio for synthesis
-const registered = await speaker.registerSpeakerFromFile("speaker-1", "Alice", "/path/to/alice.wav");
-const cloned = await tts.synthesizeWithSpeaker("Hello, I am Alice.", registered.id, 1.1);
-
 // Multi-speaker model index (Kokoro / VITS)
 const voice0 = await tts.synthesizeWithSpeaker("Hello there.", "0");
 ```
@@ -665,8 +770,11 @@ const voice0 = await tts.synthesizeWithSpeaker("Hello there.", "0");
 
 `SpeakerManager` also exposes 1:N identification and 1:1 verification over enrolled speakers, backed by `SherpaOnnxSpeakerEmbeddingManager`. The in-memory index is rebuilt from the on-disk records at `load()` and kept in sync by `registerSpeaker` / `registerSpeakerFromFile` / `removeSpeaker`.
 
+All of these APIs operate on **speaker embeddings** produced by the model you pass to `SpeakerManager.load()` — typically `3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx` (see [Speaker embedding](#speaker-embedding-voice-cloning--identification)). They are unrelated to TTS; they answer "whose voice is this?", not "how do I speak as this voice?".
+
 | Method | Signature | Returns |
 |---|---|---|
+| `computeEmbedding` | `(samples)` | Embedding vector for a 16 kHz mono f32 PCM clip |
 | `search` | `(embedding, threshold)` | Best-matching speaker ID, or `""` when nothing passes `threshold` |
 | `verify` | `(id, embedding, threshold)` | `true` when `embedding` belongs to enrolled speaker `id` |
 | `getBestMatches` | `(embedding, threshold, n)` | Up to `n` `SpeakerMatch` entries sorted by descending score |
@@ -675,7 +783,11 @@ const voice0 = await tts.synthesizeWithSpeaker("Hello there.", "0");
 
 ```typescript
 const speaker = speech.createSpeakerManager();
-await speaker.load({ modelDir, model: "model.onnx", numThreads: 4 });
+await speaker.load({
+  modelDir,
+  model: "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
+  numThreads: 4,
+});
 
 // Enroll
 await speaker.registerSpeakerFromFile("alice", "Alice", "/path/to/alice.wav");

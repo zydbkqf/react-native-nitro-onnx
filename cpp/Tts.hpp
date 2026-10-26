@@ -24,11 +24,15 @@ class Tts : public HybridTtsSpec {
 
   std::shared_ptr<Promise<void>> load(const TtsModelConfig& config) override;
   bool isLoaded() override;
-  std::shared_ptr<Promise<TtsResult>> synthesize(const std::string& text, std::optional<double> speed) override;
+  std::shared_ptr<Promise<TtsResult>> synthesize(
+      const std::string& text,
+      std::optional<double> speed,
+      const std::optional<TtsReference>& reference) override;
   std::shared_ptr<Promise<TtsResult>> synthesizeWithSpeaker(
       const std::string& text,
       const std::string& speakerId,
-      std::optional<double> speed) override;
+      std::optional<double> speed,
+      const std::optional<std::string>& referenceText) override;
   std::shared_ptr<Promise<void>> saveWav(const TtsResult& result, const std::string& path) override;
   std::shared_ptr<Promise<void>> unload() override;
 

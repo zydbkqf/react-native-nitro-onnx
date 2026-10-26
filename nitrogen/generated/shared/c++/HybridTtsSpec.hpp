@@ -17,12 +17,15 @@
 namespace margelo::nitro::onnx::speech { struct TtsModelConfig; }
 // Forward declaration of `TtsResult` to properly resolve imports.
 namespace margelo::nitro::onnx::speech { struct TtsResult; }
+// Forward declaration of `TtsReference` to properly resolve imports.
+namespace margelo::nitro::onnx::speech { struct TtsReference; }
 
 #include <NitroModules/Promise.hpp>
 #include "TtsModelConfig.hpp"
 #include "TtsResult.hpp"
 #include <string>
 #include <optional>
+#include "TtsReference.hpp"
 
 namespace margelo::nitro::onnx::speech {
 
@@ -57,8 +60,8 @@ namespace margelo::nitro::onnx::speech {
       // Methods
       virtual std::shared_ptr<Promise<void>> load(const TtsModelConfig& config) = 0;
       virtual bool isLoaded() = 0;
-      virtual std::shared_ptr<Promise<TtsResult>> synthesize(const std::string& text, std::optional<double> speed) = 0;
-      virtual std::shared_ptr<Promise<TtsResult>> synthesizeWithSpeaker(const std::string& text, const std::string& speakerId, std::optional<double> speed) = 0;
+      virtual std::shared_ptr<Promise<TtsResult>> synthesize(const std::string& text, std::optional<double> speed, const std::optional<TtsReference>& reference) = 0;
+      virtual std::shared_ptr<Promise<TtsResult>> synthesizeWithSpeaker(const std::string& text, const std::string& speakerId, std::optional<double> speed, const std::optional<std::string>& referenceText) = 0;
       virtual std::shared_ptr<Promise<void>> saveWav(const TtsResult& result, const std::string& path) = 0;
       virtual std::shared_ptr<Promise<void>> unload() = 0;
 
