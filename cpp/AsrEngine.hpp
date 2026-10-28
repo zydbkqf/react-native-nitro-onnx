@@ -45,9 +45,10 @@ struct AsrEngineConfig {
   std::string hotwordsBuf;
   float hotwordsScore = 1.5f;
   bool debug = false;
-#if defined(__ANDROID__) && defined(SHERPA_ONNX_ENABLE_QNN)
-  std::string provider = "qnn";
-#elif defined(__ANDROID__)
+#if defined(__ANDROID__)
+  // QNN is opt-in (provider: "qnn"); it is never the default because it only
+  // supports its own operator set. Compiling with -DQNN_ROOT merely makes it
+  // available. Default stays nnapi on Android.
   std::string provider = "nnapi";
 #elif defined(__APPLE__)
   std::string provider = "coreml";

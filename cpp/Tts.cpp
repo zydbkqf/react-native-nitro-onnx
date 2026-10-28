@@ -78,28 +78,31 @@ std::shared_ptr<Promise<TtsResult>> Tts::synthesize(
     const std::string& text,
     std::optional<double> speed,
     const std::optional<TtsReference>& reference) {
+  // Copy the reference samples on the JS thread. Promise::async runs on a
+  // background pool, and Nitro forbids synchronous size()/data() access to an
+  // ArrayBuffer held inside a hybrid struct off the JS thread (unlike a
+  // direct method arg). Only the copied vector reaches the async body.
+  std::optional<TtsReferenceAudio> nativeRef;
+  if (reference.has_value()) {
+    const TtsReference& ref = reference.value();
+    if (ref.samples == nullptr || ref.samples->size() == 0) {
+      throw std::invalid_argument("reference.samples must not be empty");
+    }
+    TtsReferenceAudio audio;
+    audio.samples = bytesToFloatVector(ref.samples->data(), ref.samples->size());
+    audio.sampleRate = ref.sampleRate.has_value() && ref.sampleRate.value() > 0
+                           ? static_cast<int32_t>(ref.sampleRate.value())
+                           : 16000;
+    audio.text = ref.text.value_or("");
+    nativeRef = std::move(audio);
+  }
+
   return Promise<TtsResult>::async(
-      [self = shared_cast<Tts>(), text, speed, reference]() {
+      [self = shared_cast<Tts>(), text, speed, nativeRef = std::move(nativeRef)]() {
         if (text.empty()) {
           throw std::invalid_argument("TTS text must not be empty");
         }
         float spd = speed.has_value() ? static_cast<float>(speed.value()) : -1.0f;
-
-        std::optional<TtsReferenceAudio> nativeRef;
-        if (reference.has_value()) {
-          const TtsReference& ref = reference.value();
-          if (ref.samples == nullptr || ref.samples->size() == 0) {
-            throw std::invalid_argument("reference.samples must not be empty");
-          }
-          TtsReferenceAudio audio;
-          audio.samples = bytesToFloatVector(ref.samples->data(), ref.samples->size());
-          audio.sampleRate = ref.sampleRate.has_value() && ref.sampleRate.value() > 0
-                                 ? static_cast<int32_t>(ref.sampleRate.value())
-                                 : 16000;
-          audio.text = ref.text.value_or("");
-          nativeRef = std::move(audio);
-        }
-
         return toTtsResult(self->engine_.synthesize(
             text, -1, spd, nativeRef.has_value() ? &nativeRef.value() : nullptr));
       });

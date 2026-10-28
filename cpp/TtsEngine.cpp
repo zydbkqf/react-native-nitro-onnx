@@ -131,6 +131,17 @@ void TtsEngine::load(const TtsEngineConfig& config) {
         c.model.pocket.token_scores_json = tokenScoresJson.c_str();
         break;
       case TtsModelType::ZIPVOICE:
+        // sherpa requires a dedicated vocoder (e.g. vocos_24khz.onnx) for
+        // ZipVoice; it is NOT bundled inside the decoder. Fail early with a
+        // clear message instead of letting sherpa's Validate reject an empty
+        // path, or of silently passing the model dir via joinPath("").
+        if (config_.vocoder.empty()) {
+          throw std::runtime_error(
+              "ZipVoice requires a vocoder ONNX file (e.g. vocos_24khz.onnx). "
+              "Download it from sherpa-onnx's vocoder-models release, place it "
+              "in modelDir, and set TtsModelConfig.vocoder to its filename");
+        }
+        checkFile(vocoder, "zipvoice.vocoder");
         c.model.zipvoice.tokens = tokens.c_str();
         c.model.zipvoice.encoder = zipvoiceEncoder.c_str();
         c.model.zipvoice.decoder = zipvoiceDecoder.c_str();
@@ -198,6 +209,14 @@ TtsEngineResult TtsEngine::synthesize(
     if (!referenceAudio->text.empty()) {
       genConfig.reference_text = referenceAudio->text.c_str();
     }
+  } else if (config_.type == TtsModelType::ZIPVOICE) {
+    // ZipVoice is a voice-cloning model: sherpa rejects a synthesis without a
+    // reference prompt with an opaque "reference_sample_rate 0 is invalid".
+    // Fail early with the real reason instead.
+    throw std::invalid_argument(
+        "ZipVoice requires referenceAudio (plus its transcript referenceText) "
+        "for every synthesis call — it is a voice-cloning model and cannot "
+        "synthesize without a prompt sample");
   }
 
   const SherpaOnnxGeneratedAudio* audio = SherpaOnnxOfflineTtsGenerateWithConfig(

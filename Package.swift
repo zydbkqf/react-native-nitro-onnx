@@ -34,6 +34,7 @@ let package = Package(
       cxxSettings: [
         .headerSearchPath("cpp"),
         .headerSearchPath("thirdparty/sherpa-onnx/include"),
+        .headerSearchPath("nitrogen/generated/shared/c++"),
         .headerSearchPath("nitrogen/generated/ios"),
         .define("SHERPA_ONNX_ENABLE_TTS", to: "1"),
         .define("SHERPA_ONNX_ENABLE_SPEAKER_DIARIZATION", to: "1")

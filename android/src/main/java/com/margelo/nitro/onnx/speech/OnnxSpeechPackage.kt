@@ -66,6 +66,16 @@ class OnnxSpeechPackage : ReactPackage {
     }
   }
 
+  override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
+    // RN calls this for every registered package at startup, unlike getModule()
+    // which only fires on a by-name TurboModule lookup. Nitro HybridObjects
+    // (createVad etc.) are resolved in C++ and never hit getModule, so without
+    // this hook ensureResources() — and thus setResourceDir() — would never
+    // run and the bundled silero_vad.onnx would be unreachable.
+    ensureResources(reactContext)
+    return emptyList()
+  }
+
   override fun getModule(name: String, reactContext: ReactApplicationContext): NativeModule? {
     ensureResources(reactContext)
     return super.getModule(name, reactContext)

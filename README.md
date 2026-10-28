@@ -117,7 +117,7 @@ Key design decisions:
 | VITS | `vits` | internal | High quality | Medium | Needs `model.onnx`, `tokens.txt`, optional lexicon |
 | Matcha | `matcha` | external (e.g. Hifigan) | Fast, natural | Fast | Needs acoustic model + vocoder ONNX |
 | Pocket | `pocket` | internal | Lightweight zero-shot | Very fast | Multi-file (lm / encoder / decoder, see below). Voice-cloned from a reference audio prompt |
-| ZipVoice | `zipvoice` | internal | Dedicated encoder/decoder | Fast | Needs `zipvoiceEncoder`, `zipvoiceDecoder`, vocoder, tokens. Voice-cloned from a reference audio + transcript prompt |
+| ZipVoice | `zipvoice` | internal | Dedicated encoder/decoder | Fast | Needs `zipvoiceEncoder`, `zipvoiceDecoder`, `vocoder` (separate `vocos_24khz.onnx`), tokens. Voice-cloned from a reference audio + transcript prompt |
 
 ### VAD
 
@@ -246,7 +246,7 @@ Map these to `lmMain`, `lmFlow`, `pocketEncoder`, `pocketDecoder`, `textConditio
 zipvoice/
   encoder.onnx      → zipvoiceEncoder
   decoder.onnx      → zipvoiceDecoder
-  vocoder.onnx      → vocoder
+  vocos_24khz.onnx  → vocoder (required; download separately from sherpa-onnx vocoder-models release)
   tokens.txt
   lexicon.txt
   espeak-ng-data/   (optional)
@@ -715,7 +715,7 @@ const audio = await tts.synthesize("Hello, I am Alice.", 1.0, {
 
 ```typescript
 const tts = speech.createTts();
-await tts.load({ type: "zipvoice", modelDir, /* zipvoiceEncoder / zipvoiceDecoder / vocoder / ... */ });
+await tts.load({ type: "zipvoice", modelDir, /* zipvoiceEncoder / zipvoiceDecoder / vocoder(vocos_24khz.onnx) / ... */ });
 
 const promptPcm: ArrayBuffer = /* 16 kHz mono f32 PCM of the reference voice */;
 const audio = await tts.synthesize("你好，我是 Alice。", 1.0, {

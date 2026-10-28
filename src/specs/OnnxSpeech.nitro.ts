@@ -248,7 +248,11 @@ export interface TtsModelConfig {
   model?: string;
   /** Acoustic model ONNX file (Matcha only). */
   acousticModel?: string;
-  /** Vocoder ONNX file (Matcha only). */
+  /**
+   * Vocoder ONNX file — required for Matcha (e.g. hifigan) and ZipVoice
+   * (e.g. vocos_24khz.onnx, downloaded separately from sherpa-onnx's
+   * vocoder-models release; it is not bundled inside the decoder).
+   */
   vocoder?: string;
   /** Tokens / lexicon files. */
   tokens?: string;

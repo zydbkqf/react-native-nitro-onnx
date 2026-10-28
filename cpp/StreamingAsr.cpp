@@ -50,9 +50,11 @@ std::shared_ptr<Promise<void>> StreamingAsr::load(const AsrModelConfig& config) 
     native.hotwordsBuf = config.hotwordsBuf.value_or("");
     native.hotwordsScore = static_cast<float>(config.hotwordsScore.value_or(1.5));
     native.debug = config.debug.value_or(false);
-#if defined(__ANDROID__) && defined(SHERPA_ONNX_ENABLE_QNN)
-    native.provider = config.provider.value_or("qnn");
-#elif defined(__ANDROID__)
+#if defined(__ANDROID__)
+    // QNN (Qualcomm NPU) is opt-in only: compiling with -DQNN_ROOT makes the
+    // QNN execution provider available, but it is never the default because
+    // it only supports its own operator set. Pass provider: "qnn" explicitly
+    // to use it; the default stays nnapi.
     native.provider = config.provider.value_or("nnapi");
 #elif defined(__APPLE__)
     native.provider = config.provider.value_or("coreml");
