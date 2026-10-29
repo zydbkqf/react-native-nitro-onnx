@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sherpa-onnx 2.0.0 升级决策报告 — react-native-nitro-onnx</title>
+<style>
+  :root {
+    --ink: #1a2332;
+    --sub: #5a6b84;
+    --line: #dbe3ee;
+    --accent: #0f6fbf;
+    --accent-bg: #eef5fc;
+    --ok: #0d7a3e;
+    --ok-bg: #e9f7ef;
+    --warn: #b26a00;
+    --warn-bg: #fdf3e2;
+    --bad: #b33434;
+    --bad-bg: #fdeeee;
+    --code-bg: #f4f7fa;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+    color: var(--ink);
+    margin: 0; padding: 32px 16px;
+    background: #f6f8fb; line-height: 1.65;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  .meta { color: var(--sub); font-size: 13px; margin-bottom: 24px; }
+  h2 { font-size: 19px; margin: 36px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
+  h3 { font-size: 15.5px; margin: 22px 0 8px; }
+  p, li { font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 16px; font-size: 13px; background: #fff; }
+  th, td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--accent-bg); font-weight: 600; }
+  code { background: var(--code-bg); border-radius: 4px; padding: 1px 5px; font-family: "SF Mono", Menlo, monospace; font-size: 12.5px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; overflow-x: auto; }
+  .tag { display: inline-block; border-radius: 4px; padding: 1px 8px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .ok { background: var(--ok-bg); color: var(--ok); }
+  .warn { background: var(--warn-bg); color: var(--warn); }
+  .bad { background: var(--bad-bg); color: var(--bad); }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin: 14px 0; }
+  .verdict { border-left: 4px solid var(--accent); background: var(--accent-bg); }
+  .sources { font-size: 13px; color: var(--sub); }
+  .sources a { color: var(--accent); word-break: break-all; }
+  ul { padding-left: 22px; }
+  .small { font-size: 12.5px; color: var(--sub); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>sherpa-onnx 2.0.0 升级决策报告</h1>
+<div class="meta">react-native-nitro-onnx（vendored 基线：1.13.7） · 2026-10-28 · 结论与证据均基于上游源码/release 实况核对</div>
+
+<div class="card verdict">
+  <h3 style="margin-top:0">总结论</h3>
+  <p><b>建议跟进 2.0.0。</b> C API 层<b>零符号删除、零函数签名破坏</b>，全部破坏性变化要么是「结构体尾部追加字段」（对仓库现有的零初始化代码天然兼容），要么是「本仓库根本不读的字段类型扩展」（<code>SpeechSegment.start</code>、CircularBuffer）。仓库当前代码<b>无需改动即可通过编译</b>；真正要动的是三件事：① TTS 的 <code>espeakNgData</code>（<code>data_dir</code>）在 2.0.0 被忽略，需迁移到已存在的 <code>lexicon</code> 通道并为英文语音补词典；② vendoring 替换（Android 官方 tar 直换、iOS 沿用既有自建流程）；③ 全引擎回归。作为回报拿到 <b>VAD 长流 SIGSEGV 修复（#4079）与 ZipVoice 短文本堆溢出修复（#4051）</b>，两者都直接命中本库使用场景。</p>
+</div>
+
+<h2>1. C API 破坏性变更清单（2.0.0 vs 1.13.7）</h2>
+<p>方法：对 vendored 1.13.7 头文件与 v2.0.0 tag 头文件做 <code>diff -u</code>（本地 vendored 已校验与上游 v1.13.7 逐字节一致）。diff 共 329 行：删除 15 行、新增 161 行。**删除符号数 = 0**。</p>
+
+<table>
+  <tr><th>符号</th><th>1.13.7</th><th>2.0.0</th><th>破坏性</th><th>对本库影响</th></tr>
+  <tr><td><code>SherpaOnnxSpeechSegment.start</code></td><td><code>int32_t</code></td><td><code>int64_t</code>（长流定位，-1 表示无效）</td><td><span class="tag bad">是·ABI</span></td><td><b>无</b>：全仓库零读取（VadEngine 用自维护流时钟换算 startMs/endMs，段指针仅作不透明对象）</td></tr>
+  <tr><td><code>SherpaOnnxCircularBufferGet.start_index</code> / <code>CircularBufferHead</code> 返回值</td><td><code>int32_t</code></td><td><code>int64_t</code></td><td><span class="tag bad">是·ABI</span></td><td><b>无</b>：cpp/ 未使用 CircularBuffer</td></tr>
+  <tr><td><code>SherpaOnnxOfflineTtsKittenModelConfig</code></td><td>5 字段</td><td>尾部追加 <code>const char *lexicon</code></td><td><span class="tag bad">是·ABI</span></td><td><b>无</b>：仓库无 Kitten 类型/分支（Pocket 走独立 config）</td></tr>
+  <tr><td><code>SherpaOnnxOfflineRecognizerConfig</code></td><td>—</td><td>尾部追加 <code>ctc_fst_decoder_config</code></td><td><span class="tag bad">是·ABI</span></td><td><b>编译兼容</b>：零初始化尾部新字段默认 NULL；#3951 HLG CTC 解码本库未用</td></tr>
+  <tr><td><code>SherpaOnnxGenerationConfig</code></td><td>—</td><td>尾部追加 6 字段（<code>phoneme_codepoints</code>×3 + <code>tokens</code>×3）</td><td><span class="tag bad">是·ABI</span></td><td><b>编译兼容</b>：TtsEngine.cpp:195 零初始化；这 6 个字段正是 espeak-ng 移除后的「外部音素化」入口</td></tr>
+  <tr><td><code>SherpaOnnxFastClusteringConfig</code></td><td>—</td><td>尾部追加 <code>int32_t compute_confidence</code></td><td><span class="tag bad">是·ABI</span></td><td><b>编译兼容</b>：不设置时 confidence 返回 -2，可选使用</td></tr>
+  <tr><td><code>SherpaOnnxOfflineSpeakerDiarizationSegment</code></td><td>start/end/speaker</td><td>尾部追加 <code>float confidence</code></td><td><span class="tag bad">是·ABI</span></td><td><b>编译兼容</b>：仓库只读 start/end/speaker（SpeakerDiarizationEngine.cpp:116-118），尾部追加不影响读取</td></tr>
+  <tr><td>全部 <code>SherpaOnnxCreate*</code></td><td>失败行为未定义</td><td>捕获 C++ 异常并返回 <b>NULL</b>（#4044）</td><td><span class="tag warn">行为</span></td><td><b>已天然兼容</b>：仓库全部 Create 后已有 nullptr 检查 + throw（66 处 nullptr 判断，8 个引擎全覆盖）</td></tr>
+  <tr><td>TTS 五模型 config 的 <code>data_dir</code></td><td>「Optional path to espeak-ng-data」</td><td><code>@deprecated Ignored since v2.0.0</code>（#4055）</td><td><span class="tag warn">语义</span></td><td><b>唯一真正的运行时破坏</b>：见第 2 节；字段本身保留、不构成 ABI 破坏</td></tr>
+  <tr><td>VITS/Matcha/Kokoro/ZipVoice config 其余字段</td><td>model/lexicon/tokens/dict_dir/lang…</td><td>全部保留、类型与顺序不变</td><td><span class="tag ok">否</span></td><td>无（<code>lexicon</code> 字段本就在，仓库已使用）</td></tr>
+  <tr><td><code>SherpaOnnxOfflineTtsConfig</code>（rule_fsts/rule_fars/max_num_sentences/silence_scale）</td><td>—</td><td>完全一致</td><td><span class="tag ok">否</span></td><td>无</td></tr>
+  <tr><td>VAD：<code>SherpaOnnxVadModelConfig</code> + 全部 <code>VoiceActivityDetector*</code> 函数</td><td>—</td><td>逐字节一致</td><td><span class="tag ok">否</span></td><td>无</td></tr>
+  <tr><td>KWS：KeywordSpotter 全部结构与函数</td><td>—</td><td>完全一致</td><td><span class="tag ok">否</span></td><td>无</td></tr>
+  <tr><td>Denoiser：Online/Offline（GTCRN/DPDFNet）</td><td>—</td><td>完全一致</td><td><span class="tag ok">否</span></td><td>无</td></tr>
+  <tr><td>hotwords / LID（OfflineLM/OnlineLM）</td><td>—</td><td>不变</td><td><span class="tag ok">否</span></td><td>无</td></tr>
+  <tr><td>Speaker embedding/manager 已有 API</td><td>—</td><td>完全一致</td><td><span class="tag ok">否</span></td><td>无（另新增 <code>Dim/GetEmbedding/DestroyEmbedding</code>，纯增量，未来可暴露）</td></tr>
+</table>
+
+<p class="small">新增符号（纯增量）：<code>SherpaOnnxOfflineCtcFstDecoderConfig</code>、<code>SherpaOnnxOfflineTtsLang/DestroyOfflineTtsLang</code>、<code>SpeakerEmbeddingManagerDim/GetEmbedding/DestroyEmbedding</code>。</p>
+
+<h2>2. espeak-ng 移除的真实影响（最关键）</h2>
+
+<div class="card">
+<h3 style="margin-top:0">2.1 事实</h3>
+<ul>
+  <li>2.0.0 移除 espeak-ng 与 piper-phonemize（PR <a href="https://github.com/k2-fsa/sherpa-onnx/pull/4055">#4055</a>，母 Issue <a href="https://github.com/k2-fsa/sherpa-onnx/issues/3731">#3731</a>）。<b>没有换成新的内置 G2P 库</b>，改为两条前端：① 内置 <b>lexicon 词典前端</b>（<code>lexicon.txt</code> 查词，无 GPL 依赖，OOV 词跳过）；② <b>外部自行音素化</b>后经新增的 <code>GenerationConfig.phoneme_codepoints</code> / <code>.tokens</code> 传入。</li>
+  <li>五个 TTS config 的 <code>data_dir</code> 全部标注 <code>@deprecated Ignored since v2.0.0</code> —— <b>字段保留（ABI 不变）但不再被读取</b>。</li>
+  <li>官方明确<b>模型权重文件（.onnx / tokens.txt）无需修改、无需重下</b>（"no alterations required to model files themselves"）。</li>
+</ul>
+</div>
+
+<div class="card">
+<h3 style="margin-top:0">2.2 对本库的实际影响（已对照代码）</h3>
+<ul>
+  <li>仓库 <code>espeakNgData</code> 字段（TS <code>OnnxSpeech.nitro.ts:263</code> → <code>Tts.cpp:47</code> → <code>TtsEngine.cpp:72</code>）写的就是 C 侧 <code>data_dir</code>（kokoro:102 / vits:112 / matcha:121 / zipvoice:149）。升级后该字段变 <b>no-op（无害但无效）</b>。</li>
+  <li><b>仓库已存在完整 lexicon 通道</b>：TS <code>lexicon</code> → <code>TtsEngine.cpp:70</code> → <code>c.model.{kokoro,vits,matcha,zipvoice}.lexicon</code>（:104/:110/:119/:150）；Kokoro 分支已强制 <code>checkFile(lexicon)</code>（:98）。README 中 Kokoro 已要求 lexicon.txt、VITS 标记 lexicon 可选。</li>
+  <li>因此迁移动作很小：<code>espeakNgData</code> 标 deprecated + 英文语音补齐 <code>lexicon.txt</code>。中文词典型语音（melo/vctk/aishell3）与 Kokoro 中英（自带 lexicon-us-en.txt / lexicon-zh.txt）<b>不受影响</b>；纯 Piper 英文旧包（glados/libritts/lessac，目录里只有 espeak-ng-data、无 lexicon.txt）<b>不补词典则全部 OOV 不出音</b> —— 这是升级前需要盘点的资产项。</li>
+  <li>词典来源：官方 <code>lexicon-en-us.txt</code>（tts-models release）或社区免 GPL 词典 voicegarden-lexicons。Pocket 不依赖 espeak-ng（不写 data_dir），完全不受影响。</li>
+</ul>
+</div>
+
+<h2>3. iOS / Android 预编译产物</h2>
+
+<table>
+  <tr><th>平台</th><th>v2.0.0 产物</th><th>说明</th></tr>
+  <tr><td>Android</td><td><code>sherpa-onnx-v2.0.0-android.tar.bz2</code>（45.2 MB）</td><td>含全部 4 ABI（arm64-v8a / armeabi-v7a / x86 / x86_64），每 ABI 含 <code>libonnxruntime.so</code> + <code>libsherpa-onnx-c-api.so</code> / <code>cxx-api.so</code> / <code>jni.so</code> —— 与当前 vendoring 结构完全同构，<b>直接替换</b></td></tr>
+  <tr><td>iOS</td><td><b>无</b>（release 无任何 xcframework / iOS 产物）</td><td><b>经核实 v1.13.7 release 的 289 个资产同样没有任何 iOS 产物</b> —— 当前 vendored 的 SherpaOnnxC.xcframework 本就是自建。因此 iOS 自编译是<b>既有流程而非 2.0.0 新增阻碍</b>（1.13.5 已重构 xcframework 构建脚本）</td></tr>
+  <tr><td>头文件</td><td>无独立 asset，嵌在各平台 tar 内 <code>include/</code></td><td>源码取 <code>sherpa-onnx/c-api/c-api.h</code>（raw tag 即可）</td></tr>
+  <tr><td>onnxruntime</td><td>默认 <b>1.28.2</b></td><td>Android 包内自带 ORT .so；iOS 自建时按上游脚本选 ORT 版本</td></tr>
+</table>
+
+<p>其它平台（macOS arm64/x64/universal2、Linux x64/aarch64/arm/riscv64/CUDA、Windows、WASM、OpenHarmony、RKNN/Axera）均有产物，与升级无关。</p>
+
+<h2>4. 价值 vs 成本</h2>
+
+<h3>4.1 对本库有实际价值的修复（2.0.0 相对 1.13.7）</h3>
+<ul>
+  <li><b>#4079 VAD 长流 SIGSEGV</b>（采样位置 int32→int64）—— 本库做 streaming VAD，长时间录音分段是核心场景，此修复<b>免费获得且升级即生效</b>。</li>
+  <li><b>#4051 ZipVoice 短文本 speed&gt;1 堆溢出</b> —— 本库支持 ZipVoice（TtsEngine 有 speed 参数路径），直接修掉一个内存安全 bug。</li>
+  <li><b>#4044 Create* 异常捕获返回 NULL</b> —— 仓库已全量 NULL 检查，异常不再崩溃、可向上抛 JS 异常，稳定性增强。</li>
+  <li><b>#4062/#4064 TTS 非 BMP（emoji 等）文本处理修复</b> —— 需回归测试中文/emoji 混合文本。</li>
+  <li><b>#3950 GetEmbedding 新增</b> —— 纯增量，未来可向 TS 暴露 speaker embedding 导出能力。</li>
+</ul>
+
+<h3>4.2 升级成本清单（破坏性工作量预估）</h3>
+<table>
+  <tr><th>项目</th><th>工作量</th><th>说明</th></tr>
+  <tr><td>vendoring 替换（Android 4 ABI + include 头 + 本地 lib/*.a）</td><td><span class="tag ok">低</span></td><td>官方 tar 直换，结构同构；iOS 沿用自建流程重新出 xcframework</td></tr>
+  <tr><td>TTS 迁移：espeakNgData 标 deprecated、英文语音补 lexicon.txt</td><td><span class="tag warn">低-中</span></td><td>代码改动 ≈ 文档/类型注释 + 资产盘点；如做「lexicon 缺省自动回退官方 lexicon-en-us.txt」需小改 TtsEngine.cpp:70-150</td></tr>
+  <tr><td>cpp 代码编译改动</td><td><span class="tag ok">≈ 0</span></td><td>0 删除、0 签名破坏、结构体尾部追加兼容零初始化；无需改任何 cpp 文件即可过编译</td></tr>
+  <tr><td>回归测试</td><td><span class="tag warn">中</span></td><td>全引擎过一遍：TTS（5 模型 + 中文/emoji）、VAD 长流、diarization（confidence 新字段可选）、ASR/KWS/LID/denoiser/embedding</td></tr>
+</table>
+
+<h2>5. 结论与建议</h2>
+
+<div class="card verdict">
+<ul>
+  <li><b>是否跟进：跟进 2.0.0。</b> C API 破坏面几乎为零且全部兼容现有代码；两个直接命中本库场景的 bug 修复（VAD 长流 SIGSEGV、ZipVoice 堆溢出）是实打实的收益；espeak-ng 移除的实际改动量因仓库已有 lexicon 通道而很小。</li>
+  <li><b>若跟进，改什么（清单）：</b>
+    <ol>
+      <li>替换 <code>thirdparty/sherpa-onnx/</code>：android 4 ABI × 4 .so + <code>libonnxruntime.so</code>、<code>include/sherpa-onnx/c-api/c-api.h</code>、本地 <code>lib/*.a</code>；iOS 用既有构建脚本重出 <code>SherpaOnnxC.xcframework</code>。</li>
+      <li>TTS 语义迁移：<code>espeakNgData</code> 标注 deprecated（保留字段防破坏现有 TS API）；<code>TtsEngine.cpp</code> 的 <code>data_dir</code> 赋值改为仅当未提供 lexicon 时尝试 lexicon-en-us.txt 兜底或直接移除；README/类型注释更新；盘点打包的 TTS 语音，英文 Piper 系补 lexicon.txt。</li>
+      <li>可选增强：暴露 <code>GenerationConfig.phoneme_codepoints</code> 支持外部音素化；暴露 <code>GetEmbedding</code>。</li>
+      <li>回归：全引擎 + TTS 中文/emoji 文本 + VAD 长时间流。</li>
+    </ol>
+  </li>
+  <li><b>若不跟进的风险：</b>① VAD 长流 SIGSEGV 与 ZipVoice 堆溢出持续存在（都是运行时崩溃/内存安全级别）；② 上游 2.0.x 后续版本基于 2.0 API 演进，拖延使累积 diff 变大；③ 1.13.x 是最后带 espeak-ng 的版本线，但已 vendored，不影响继续使用；④ 无风险积累之外的其它硬性理由。总体「不跟」的代价 &gt; 「跟」的成本。</li>
+</ul>
+</div>
+
+<h2>附录：来源</h2>
+<div class="sources">
+<ul>
+  <li>v1.13.7 / v2.0.0 C API 头文件（diff 依据）：<a href="https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/v1.13.7/sherpa-onnx/c-api/c-api.h">1.13.7</a> · <a href="https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/v2.0.0/sherpa-onnx/c-api/c-api.h">2.0.0</a></li>
+  <li>CHANGELOG（#4055 / #4079 / #4051 / #4044 / #3951 / #3950 / #4062 / #4064）：<a href="https://github.com/k2-fsa/sherpa-onnx/blob/master/CHANGELOG.md">github.com/k2-fsa/sherpa-onnx/blob/master/CHANGELOG.md</a></li>
+  <li>espeak-ng 移除 PR #4055：<a href="https://github.com/k2-fsa/sherpa-onnx/pull/4055">github.com/k2-fsa/sherpa-onnx/pull/4055</a>；迁移说明 Issue #3731：<a href="https://github.com/k2-fsa/sherpa-onnx/issues/3731">github.com/k2-fsa/sherpa-onnx/issues/3731</a></li>
+  <li>v2.0.0 release 资产清单（GitHub API）：<a href="https://api.github.com/repos/k2-fsa/sherpa-onnx/releases/tags/v2.0.0">api.github.com/repos/k2-fsa/sherpa-onnx/releases/tags/v2.0.0</a>；v1.13.7 对照：<a href="https://api.github.com/repos/k2-fsa/sherpa-onnx/releases/tags/v1.13.7">…/tags/v1.13.7</a></li>
+  <li>TTS 模型文档（vits/kokoro 目录结构与 lexicon 证据）：<a href="https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/vits.html">vits.html</a> · <a href="https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/kokoro.html">kokoro.html</a></li>
+  <li>社区免 GPL 多语种词典：<a href="https://github.com/AACTools/voicegarden-lexicons/releases">github.com/AACTools/voicegarden-lexicons/releases</a></li>
+  <li>本地代码证据：<code>cpp/TtsEngine.cpp</code>（data_dir 赋值 :102/:112/:121/:149、lexicon :70/:98/:104/:110/:119/:150）、<code>cpp/VadEngine.cpp:149-196</code>（流时钟换算、不读 seg 字段）、<code>cpp/SpeakerDiarizationEngine.cpp:116-118</code>（读 start/end/speaker）、<code>src/specs/OnnxSpeech.nitro.ts:263</code>（espeakNgData 定义）、8 个 Engine 的 Create nullptr 检查</li>
+</ul>
+</div>
+
+</div>
+</body>
+</html>
