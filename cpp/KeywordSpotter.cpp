@@ -68,10 +68,10 @@ bool KeywordSpotter::isLoaded() {
 
 std::shared_ptr<Promise<void>> KeywordSpotter::acceptWaveform(
     const std::shared_ptr<ArrayBuffer>& samples) {
-  return Promise<void>::async([self = shared_cast<KeywordSpotter>(), samples]() {
+  auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
+  return Promise<void>::async([self = shared_cast<KeywordSpotter>(), floatSamples]() {
     std::vector<KeywordSpotterEngineResult> triggered;
     try {
-      auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
       triggered = self->engine_.acceptWaveform(floatSamples);
     } catch (const std::exception& e) {
       if (self->onError_.has_value()) {

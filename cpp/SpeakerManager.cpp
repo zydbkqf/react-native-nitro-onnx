@@ -49,8 +49,8 @@ bool SpeakerManager::isLoaded() {
 
 std::shared_ptr<Promise<std::shared_ptr<ArrayBuffer>>> SpeakerManager::computeEmbedding(
     const std::shared_ptr<ArrayBuffer>& samples) {
-  return Promise<std::shared_ptr<ArrayBuffer>>::async([self = shared_cast<SpeakerManager>(), samples]() {
-    auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
+  auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
+  return Promise<std::shared_ptr<ArrayBuffer>>::async([self = shared_cast<SpeakerManager>(), floatSamples]() {
     auto embedding = self->engine_.computeEmbedding(floatSamples);
     auto bytes = floatVectorToBytes(embedding);
     return ArrayBuffer::move(std::move(bytes));
@@ -61,8 +61,8 @@ std::shared_ptr<Promise<RegisteredSpeaker>> SpeakerManager::registerSpeaker(
     const std::string& id,
     const std::string& name,
     const std::shared_ptr<ArrayBuffer>& embedding) {
-  return Promise<RegisteredSpeaker>::async([self = shared_cast<SpeakerManager>(), id, name, embedding]() {
-    auto floatEmbedding = bytesToFloatVector(embedding->data(), embedding->size());
+  auto floatEmbedding = bytesToFloatVector(embedding->data(), embedding->size());
+  return Promise<RegisteredSpeaker>::async([self = shared_cast<SpeakerManager>(), id, name, floatEmbedding]() {
     return toRegisteredSpeaker(self->engine_.registerSpeaker(id, name, floatEmbedding));
   });
 }
@@ -90,25 +90,25 @@ std::shared_ptr<Promise<void>> SpeakerManager::removeSpeaker(const std::string& 
 
 std::shared_ptr<Promise<std::string>> SpeakerManager::search(
     const std::shared_ptr<ArrayBuffer>& embedding, double threshold) {
-  return Promise<std::string>::async([self = shared_cast<SpeakerManager>(), embedding, threshold]() {
-    auto floatEmbedding = bytesToFloatVector(embedding->data(), embedding->size());
+  auto floatEmbedding = bytesToFloatVector(embedding->data(), embedding->size());
+  return Promise<std::string>::async([self = shared_cast<SpeakerManager>(), floatEmbedding, threshold]() {
     return self->engine_.search(floatEmbedding, static_cast<float>(threshold));
   });
 }
 
 std::shared_ptr<Promise<bool>> SpeakerManager::verify(
     const std::string& id, const std::shared_ptr<ArrayBuffer>& embedding, double threshold) {
-  return Promise<bool>::async([self = shared_cast<SpeakerManager>(), id, embedding, threshold]() {
-    auto floatEmbedding = bytesToFloatVector(embedding->data(), embedding->size());
+  auto floatEmbedding = bytesToFloatVector(embedding->data(), embedding->size());
+  return Promise<bool>::async([self = shared_cast<SpeakerManager>(), id, floatEmbedding, threshold]() {
     return self->engine_.verify(id, floatEmbedding, static_cast<float>(threshold));
   });
 }
 
 std::shared_ptr<Promise<std::vector<SpeakerMatch>>> SpeakerManager::getBestMatches(
     const std::shared_ptr<ArrayBuffer>& embedding, double threshold, double n) {
+  auto floatEmbedding = bytesToFloatVector(embedding->data(), embedding->size());
   return Promise<std::vector<SpeakerMatch>>::async(
-      [self = shared_cast<SpeakerManager>(), embedding, threshold, n]() {
-        auto floatEmbedding = bytesToFloatVector(embedding->data(), embedding->size());
+      [self = shared_cast<SpeakerManager>(), floatEmbedding, threshold, n]() {
         auto matches = self->engine_.getBestMatches(
             floatEmbedding, static_cast<float>(threshold), static_cast<int32_t>(n));
         std::vector<SpeakerMatch> result;

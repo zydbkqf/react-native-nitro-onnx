@@ -32,8 +32,8 @@ bool LanguageId::isLoaded() {
 
 std::shared_ptr<Promise<LanguageIdResult>> LanguageId::identify(
     const std::shared_ptr<ArrayBuffer>& samples) {
-  return Promise<LanguageIdResult>::async([self = shared_cast<LanguageId>(), samples]() {
-    auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
+  auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
+  return Promise<LanguageIdResult>::async([self = shared_cast<LanguageId>(), floatSamples]() {
     return LanguageIdResult(self->engine_.identify(floatSamples));
   });
 }

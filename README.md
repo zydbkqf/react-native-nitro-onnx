@@ -88,7 +88,7 @@ Key design decisions:
 - **Singleton preloading:** `OfflineAsrEngine`, `StreamingAsrEngine`, `TtsEngine`, `SpeakerEngine`, `SpeakerDiarizationEngine`, `LanguageIdEngine`, `SpeechEnhancementEngine` and `KeywordSpotterEngine` use `ModelSingleton`. The cache key covers model dir, type, provider, thread count and other identity-relevant options, so loading the same configuration twice returns the same native instance while a changed option creates a new one.
 - **Background inference:** Every heavy operation runs on a background task pool provided by `react-native-nitro-modules` (`Promise::async`) so the JS thread never blocks. VAD additionally uses a dedicated processor thread for streaming segmentation.
 - **External model download:** The module does not bundle an internal downloader. Download model files in the background with a library such as [`@kesha-antonov/react-native-background-downloader`](https://github.com/kesha-antonov/react-native-background-downloader), then pass the local file paths to `load()` / `initialize()`.
-- **Zero-copy audio:** `ArrayBuffer` is the only audio transport format; samples are expected to be 16 kHz mono little-endian f32 PCM.
+- **Zero-copy transport:** audio crosses the JS/native boundary via a shared `ArrayBuffer` (no serialization); samples are expected to be 16 kHz mono little-endian f32 PCM. The native side performs one byte→float decode on the JS thread before offloading inference.
 - **Storage:** Bundled assets (e.g. `silero_vad.onnx`) live in the platform resource dir. Registered speakers are written under the app document dir (`Application Support` on iOS, excluded from iCloud backup; `filesDir` on Android) at `<documentDir>/speakers/`.
 
 ## Supported Models

@@ -56,8 +56,8 @@ double SpeechEnhancement::getSampleRate() {
 
 std::shared_ptr<Promise<EnhancedAudio>> SpeechEnhancement::denoise(
     const std::shared_ptr<ArrayBuffer>& samples) {
-  return Promise<EnhancedAudio>::async([self = shared_cast<SpeechEnhancement>(), samples]() {
-    auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
+  auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
+  return Promise<EnhancedAudio>::async([self = shared_cast<SpeechEnhancement>(), floatSamples]() {
     return toEnhancedAudio(self->engine_.denoise(floatSamples));
   });
 }
@@ -74,8 +74,8 @@ double SpeechEnhancement::getFrameShiftInSamples() {
 
 std::shared_ptr<Promise<EnhancedAudio>> SpeechEnhancement::processChunk(
     const std::shared_ptr<ArrayBuffer>& samples) {
-  return Promise<EnhancedAudio>::async([self = shared_cast<SpeechEnhancement>(), samples]() {
-    auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
+  auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
+  return Promise<EnhancedAudio>::async([self = shared_cast<SpeechEnhancement>(), floatSamples]() {
     return toEnhancedAudio(self->engine_.processChunk(floatSamples));
   });
 }

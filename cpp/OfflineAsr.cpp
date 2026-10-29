@@ -77,8 +77,8 @@ bool OfflineAsr::isLoaded() {
 
 std::shared_ptr<Promise<AsrResult>> OfflineAsr::recognize(
     const std::shared_ptr<ArrayBuffer>& samples) {
-  return Promise<AsrResult>::async([self = shared_cast<OfflineAsr>(), samples]() {
-    auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
+  auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
+  return Promise<AsrResult>::async([self = shared_cast<OfflineAsr>(), floatSamples]() {
     return toAsrResult(self->engine_.recognize(floatSamples));
   });
 }
@@ -90,8 +90,8 @@ std::shared_ptr<Promise<AsrResult>> OfflineAsr::recognizeFile(const std::string&
 
 std::shared_ptr<Promise<AsrResult>> OfflineAsr::recognizeWithHotwords(
     const std::shared_ptr<ArrayBuffer>& samples, const std::string& hotwords) {
-  return Promise<AsrResult>::async([self = shared_cast<OfflineAsr>(), samples, hotwords]() {
-    auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
+  auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
+  return Promise<AsrResult>::async([self = shared_cast<OfflineAsr>(), floatSamples, hotwords]() {
     return toAsrResult(self->engine_.recognizeWithHotwords(floatSamples, hotwords));
   });
 }

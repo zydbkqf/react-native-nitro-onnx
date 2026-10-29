@@ -56,8 +56,8 @@ double SpeakerDiarization::getSampleRate() {
 
 std::shared_ptr<Promise<DiarizationResult>> SpeakerDiarization::process(
     const std::shared_ptr<ArrayBuffer>& samples) {
-  return Promise<DiarizationResult>::async([self = shared_cast<SpeakerDiarization>(), samples]() {
-    auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
+  auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
+  return Promise<DiarizationResult>::async([self = shared_cast<SpeakerDiarization>(), floatSamples]() {
     return toDiarizationResult(self->engine_.process(floatSamples));
   });
 }

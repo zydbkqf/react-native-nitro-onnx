@@ -71,8 +71,8 @@ bool StreamingAsr::isLoaded() {
 
 std::shared_ptr<Promise<void>> StreamingAsr::acceptWaveform(
     const std::shared_ptr<ArrayBuffer>& samples) {
-  return Promise<void>::async([self = shared_cast<StreamingAsr>(), samples]() {
-    auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
+  auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
+  return Promise<void>::async([self = shared_cast<StreamingAsr>(), floatSamples]() {
     self->engine_.acceptWaveform(floatSamples);
   });
 }
