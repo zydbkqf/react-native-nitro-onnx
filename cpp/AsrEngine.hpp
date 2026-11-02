@@ -44,6 +44,10 @@ struct AsrEngineConfig {
   std::string hotwordsFile;
   std::string hotwordsBuf;
   float hotwordsScore = 1.5f;
+  /** Comma-separated ITN rule FST paths (resolved against modelDir). */
+  std::string ruleFsts;
+  /** Comma-separated ITN FAR archive paths (resolved against modelDir). */
+  std::string ruleFars;
   bool debug = false;
 #if defined(__ANDROID__)
   // QNN is opt-in (provider: "qnn"); it is never the default because it only

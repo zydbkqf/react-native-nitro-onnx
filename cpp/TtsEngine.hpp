@@ -44,6 +44,10 @@ struct TtsEngineConfig {
   int32_t outputSampleRate = 16000;
   int32_t speakerId = 0;
   float speed = 1.0f;
+  /** Comma-separated TN rule FST paths (resolved against modelDir). */
+  std::string ruleFsts;
+  /** Comma-separated TN FAR archive paths (resolved against modelDir). */
+  std::string ruleFars;
   bool debug = false;
 #ifdef __APPLE__
   std::string provider = "coreml";
@@ -53,7 +57,8 @@ struct TtsEngineConfig {
 
   std::string cacheSignature() const {
     return modelDir + "|" + std::to_string(static_cast<int>(type)) + "|" + provider + "|" +
-           std::to_string(numThreads) + "|" + std::to_string(outputSampleRate);
+           std::to_string(numThreads) + "|" + std::to_string(outputSampleRate) + "|" + ruleFsts + "|" +
+           ruleFars;
   }
 };
 

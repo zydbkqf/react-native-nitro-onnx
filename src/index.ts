@@ -41,6 +41,8 @@ export type {
   KeywordSpotterConfig,
   KeywordSpotterResult,
   KeywordSpotter,
+  PunctuationConfig,
+  Punctuation,
   OnnxSpeech,
 } from "./specs/OnnxSpeech.nitro.js";
 
@@ -48,7 +50,8 @@ export type {
  * Get the shared OnnxSpeech Nitro module instance.
  * Heavy AI models are loaded on demand and cached as singletons behind
  * the individual hybrid objects (Vad, Asr, Tts, SpeakerManager,
- * SpeakerDiarization, LanguageId, SpeechEnhancement, KeywordSpotter).
+ * SpeakerDiarization, LanguageId, SpeechEnhancement, KeywordSpotter,
+ * Punctuation).
  */
 export function getOnnxSpeech(): OnnxSpeech {
   return NitroModules.createHybridObject<OnnxSpeech>("NitroOnnxSpeech");

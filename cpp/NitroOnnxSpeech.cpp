@@ -6,6 +6,7 @@
 #include "KeywordSpotter.hpp"
 #include "LanguageId.hpp"
 #include "OfflineAsr.hpp"
+#include "Punctuation.hpp"
 #include "ResourceDir.hpp"
 #include "SpeakerDiarization.hpp"
 #include "SpeakerManager.hpp"
@@ -17,6 +18,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <thread>
 
 #ifdef __ANDROID__
 #include <sys/system_properties.h>
@@ -65,8 +67,16 @@ std::shared_ptr<HybridKeywordSpotterSpec> NitroOnnxSpeech::createKeywordSpotter(
   return std::make_shared<KeywordSpotter>();
 }
 
+std::shared_ptr<HybridPunctuationSpec> NitroOnnxSpeech::createPunctuation() {
+  return std::make_shared<Punctuation>();
+}
+
 std::string NitroOnnxSpeech::getVersion() {
   return NITRO_ONNX_SPEECH_VERSION;
+}
+
+double NitroOnnxSpeech::getCpuCoreCount() {
+  return static_cast<double>(std::thread::hardware_concurrency());
 }
 
 std::string NitroOnnxSpeech::getQualcommSoc() {

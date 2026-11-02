@@ -116,6 +116,18 @@ export interface AsrModelConfig {
     hotwordsBuf?: string;
     /** Bonus score added to each hotword token during decoding. Default: 1.5. */
     hotwordsScore?: number;
+    /**
+     * Comma-separated rule FST files for inverse text normalization (ITN),
+     * applied to the recognition text before it is returned, e.g.
+     * "number.fst,date.fst,phone.fst". Paths are resolved against `modelDir`
+     * unless absolute. Empty (default) disables ITN.
+     */
+    ruleFsts?: string;
+    /**
+     * Comma-separated FAR archives with additional ITN / text-processing rules.
+     * Paths are resolved against `modelDir` unless absolute.
+     */
+    ruleFars?: string;
     /** Enable sherpa-onnx debug logging for this model. Default: false. */
     debug?: boolean;
     /**
@@ -242,6 +254,18 @@ export interface TtsModelConfig {
     speakerId?: number;
     /** Speed factor, e.g. 1.0. */
     speed?: number;
+    /**
+     * Comma-separated rule FST files for text normalization (TN) applied to the
+     * input text before synthesis, e.g. "date.fst,phone.fst,number.fst". Paths
+     * are resolved against `modelDir` unless absolute. Empty (default) disables
+     * normalization.
+     */
+    ruleFsts?: string;
+    /**
+     * Comma-separated FAR archives with additional TN / text-processing rules.
+     * Paths are resolved against `modelDir` unless absolute.
+     */
+    ruleFars?: string;
     /** Enable sherpa-onnx debug logging for this model. Default: false. */
     debug?: boolean;
     /**
@@ -549,6 +573,55 @@ export interface KeywordSpotter extends HybridObject<SpeechPlatforms> {
     reset(): Promise<void>;
     unload(): Promise<void>;
 }
+export interface PunctuationConfig {
+    /** Directory containing the punctuation model files. */
+    modelDir: string;
+    /**
+     * Offline CT-Transformer ONNX model (e.g.
+     * `sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12/model.onnx`).
+     * Enables `addPunct`. Supports Chinese + English.
+     */
+    ctTransformer?: string;
+    /**
+     * Online CNN-BiLSTM ONNX model (e.g.
+     * `sherpa-onnx-online-punct-en-2024-08-06/model.int8.onnx`).
+     * Enables `addPunctChunk`. English only.
+     */
+    cnnBilstm?: string;
+    /** Online: BPE vocabulary used by the CNN-BiLSTM model (e.g. `bpe.vocab`). */
+    bpeVocab?: string;
+    numThreads?: number;
+    debug?: boolean;
+    provider?: string;
+}
+/**
+ * Punctuation restoration hybrid object.
+ *
+ * Two independent models may be loaded on one instance:
+ * - Offline CT-Transformer (`ctTransformer`) for whole-text punctuation via
+ *   `addPunct`.
+ * - Online CNN-BiLSTM (`cnnBilstm` + `bpeVocab`) for streaming text chunks via
+ *   `addPunctChunk`.
+ *
+ * Each method throws when its backing model was not configured in `load`.
+ */
+export interface Punctuation extends HybridObject<SpeechPlatforms> {
+    load(config: PunctuationConfig): Promise<void>;
+    isLoaded(): boolean;
+    /** Whether the offline (CT-Transformer) model is available. */
+    isOfflineLoaded(): boolean;
+    /** Whether the online (CNN-BiLSTM) model is available. */
+    isOnlineLoaded(): boolean;
+    /** Offline: add punctuation to a complete text without punctuation. */
+    addPunct(text: string): Promise<string>;
+    /**
+     * Online: add punctuation to one streaming text chunk. The CNN-BiLSTM
+     * model processes each fragment independently, so feed chunks in order and
+     * concatenate the results.
+     */
+    addPunctChunk(text: string): Promise<string>;
+    unload(): Promise<void>;
+}
 export interface OnnxSpeech extends HybridObject<SpeechPlatforms> {
     /** Create a VAD instance. */
     createVad(): Vad;
@@ -568,8 +641,16 @@ export interface OnnxSpeech extends HybridObject<SpeechPlatforms> {
     createSpeechEnhancement(): SpeechEnhancement;
     /** Create a streaming keyword spotter / wake-word detector. */
     createKeywordSpotter(): KeywordSpotter;
+    /** Create a punctuation restoration instance. */
+    createPunctuation(): Punctuation;
     /** Get the module version. */
     readonly version: string;
+    /**
+     * Number of hardware threads (logical CPU cores) available on the device,
+     * e.g. 8. Useful for picking `numThreads` for a model. Returns 0 if the
+     * value is not computable on this platform.
+     */
+    getCpuCoreCount(): number;
     /** Returns the Qualcomm SoC model (e.g. "SM8550") on Android, or empty string on iOS / non-Qualcomm. */
     getQualcommSoc(): string;
 }

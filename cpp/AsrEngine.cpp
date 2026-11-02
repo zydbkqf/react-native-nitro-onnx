@@ -8,6 +8,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <sstream>
 #include <stdexcept>
 
 namespace margelo::nitro::onnx::speech {
@@ -28,6 +29,30 @@ std::string joinPath(const std::string& dir, const std::string& file) {
     return dir + file;
   }
   return dir + "/" + file;
+}
+
+// rule_fsts / rule_fars are comma-separated file lists. Each entry resolves
+// against the model directory unless absolute, matching the other file fields.
+std::string resolveRuleList(const std::string& dir, const std::string& list) {
+  if (list.empty()) {
+    return list;
+  }
+  std::string out;
+  std::stringstream ss(list);
+  std::string entry;
+  while (std::getline(ss, entry, ',')) {
+    size_t b = entry.find_first_not_of(" \t");
+    if (b == std::string::npos) {
+      continue;
+    }
+    size_t e = entry.find_last_not_of(" \t");
+    entry = entry.substr(b, e - b + 1);
+    if (!out.empty()) {
+      out += ",";
+    }
+    out += joinPath(dir, entry);
+  }
+  return out;
 }
 
 ModelSingleton<const SherpaOnnxOfflineRecognizer> gOfflineRecognizerCache;
@@ -104,7 +129,7 @@ std::string AsrEngineConfig::cacheSignature() const {
   return modelDir + "|" + std::to_string(static_cast<int>(type)) + "|" + provider + "|" +
          std::to_string(numThreads) + "|" + language + "|" + decodingMethod + "|" +
          std::to_string(maxActivePaths) + "|" + (useItn ? "1" : "0") + "|" + hotwordsFile + "|" +
-         hotwordsBuf + "|" + std::to_string(hotwordsScore);
+         hotwordsBuf + "|" + std::to_string(hotwordsScore) + "|" + ruleFsts + "|" + ruleFars;
 }
 
 // ------------------------------------------------------------------------------
@@ -205,6 +230,16 @@ void OfflineAsrEngine::load(const AsrEngineConfig& config) {
       c.hotwords_file = hotwordsFile.c_str();
     }
     c.hotwords_score = config_.hotwordsScore;
+
+    // Resolved rule lists must outlive the Create call.
+    std::string ruleFsts = resolveRuleList(config_.modelDir, config_.ruleFsts);
+    std::string ruleFars = resolveRuleList(config_.modelDir, config_.ruleFars);
+    if (!ruleFsts.empty()) {
+      c.rule_fsts = ruleFsts.c_str();
+    }
+    if (!ruleFars.empty()) {
+      c.rule_fars = ruleFars.c_str();
+    }
 
     const SherpaOnnxOfflineRecognizer* rec = SherpaOnnxCreateOfflineRecognizer(&c);
     if (rec == nullptr) {
@@ -334,6 +369,16 @@ void StreamingAsrEngine::load(
       c.hotwords_file = hotwordsFile.c_str();
     }
     c.hotwords_score = config_.hotwordsScore;
+
+    // Resolved rule lists must outlive the Create call.
+    std::string ruleFsts = resolveRuleList(config_.modelDir, config_.ruleFsts);
+    std::string ruleFars = resolveRuleList(config_.modelDir, config_.ruleFars);
+    if (!ruleFsts.empty()) {
+      c.rule_fsts = ruleFsts.c_str();
+    }
+    if (!ruleFars.empty()) {
+      c.rule_fars = ruleFars.c_str();
+    }
 
     const SherpaOnnxOnlineRecognizer* rec = SherpaOnnxCreateOnlineRecognizer(&c);
     if (rec == nullptr) {

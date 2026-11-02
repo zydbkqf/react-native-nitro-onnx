@@ -44,6 +44,7 @@ All audio I/O uses zero-copy `ArrayBuffer` with **16 kHz mono f32 PCM**.
 - [Usage](#usage)
 - [Hotwords](#hotwords)
 - [Keyword Spotting](#keyword-spotting)
+- [Punctuation and ITN](#punctuation-and-itn)
 - [Execution Providers](#execution-providers)
 - [VAD Pre-buffer](#vad-pre-buffer)
 - [Voice Cloning](#voice-cloning)
@@ -66,7 +67,8 @@ All audio I/O uses zero-copy `ArrayBuffer` with **16 kHz mono f32 PCM**.
 │                    createSpeakerDiarization() /              │
 │                    createLanguageId() /                      │
 │                    createSpeechEnhancement() /               │
-│                    createKeywordSpotter()                    │
+│                    createKeywordSpotter() /                  │
+│                    createPunctuation()                       │
 └──────────────────────┬──────────────────────────────────────┘
 │  react-native-nitro-modules (zero-copy ArrayBuffer)
 ┌──────────────────────┴──────────────────────────────────────┐
@@ -74,7 +76,7 @@ All audio I/O uses zero-copy `ArrayBuffer` with **16 kHz mono f32 PCM**.
 │  NitroOnnxSpeech → Vad / OfflineAsr / StreamingAsr / Tts /  │
 │                    SpeakerManager / SpeakerDiarization /    │
 │                    LanguageId / SpeechEnhancement /         │
-│                    KeywordSpotter                           │
+│                    KeywordSpotter / Punctuation             │
 │  ModelSingleton caches heavy recognizer / TTS instances     │
 └──────────────────────┬──────────────────────────────────────┘
 │  sherpa-onnx C API
@@ -85,7 +87,7 @@ All audio I/O uses zero-copy `ArrayBuffer` with **16 kHz mono f32 PCM**.
 
 Key design decisions:
 
-- **Singleton preloading:** `OfflineAsrEngine`, `StreamingAsrEngine`, `TtsEngine`, `SpeakerEngine`, `SpeakerDiarizationEngine`, `LanguageIdEngine`, `SpeechEnhancementEngine` and `KeywordSpotterEngine` use `ModelSingleton`. The cache key covers model dir, type, provider, thread count and other identity-relevant options, so loading the same configuration twice returns the same native instance while a changed option creates a new one.
+- **Singleton preloading:** `OfflineAsrEngine`, `StreamingAsrEngine`, `TtsEngine`, `SpeakerEngine`, `SpeakerDiarizationEngine`, `LanguageIdEngine`, `SpeechEnhancementEngine`, `KeywordSpotterEngine` and `PunctuationEngine` use `ModelSingleton`. The cache key covers model dir, type, provider, thread count and other identity-relevant options, so loading the same configuration twice returns the same native instance while a changed option creates a new one.
 - **Background inference:** Every heavy operation runs on a background task pool provided by `react-native-nitro-modules` (`Promise::async`) so the JS thread never blocks. VAD additionally uses a dedicated processor thread for streaming segmentation.
 - **External model download:** The module does not bundle an internal downloader. Download model files in the background with a library such as [`@kesha-antonov/react-native-background-downloader`](https://github.com/kesha-antonov/react-native-background-downloader), then pass the local file paths to `load()` / `initialize()`.
 - **Zero-copy transport:** audio crosses the JS/native boundary via a shared `ArrayBuffer` (no serialization); samples are expected to be 16 kHz mono little-endian f32 PCM. The native side performs one byte→float decode on the JS thread before offloading inference.
@@ -133,6 +135,7 @@ Pretrained sherpa-onnx model families are published as GitHub release assets. Do
 - **Spoken language identification:** use a Whisper model from the ASR models tag (`sherpa-onnx-whisper-tiny`)
 - **Speech enhancement:** https://github.com/k2-fsa/sherpa-onnx/releases/tag/speech-enhancement-models
 - **Keyword spotting:** https://github.com/k2-fsa/sherpa-onnx/releases/tag/kws-models
+- **Punctuation:** https://github.com/k2-fsa/sherpa-onnx/releases/tag/punctuation-models (`sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12`, `sherpa-onnx-online-punct-en-2024-08-06`)
 
 > The Silero VAD model (`silero_vad.onnx`) is bundled with the module, so no separate download is required for VAD.
 
@@ -583,6 +586,96 @@ await kws.setKeywords("n i t r o @Nitro/m ó d u l e @Module");
 | `numTrailingBlanks` | `1` | Trailing blank symbols required before trigger finalization |
 | `maxActivePaths` | `4` | Max active decoding paths |
 
+## Punctuation and ITN
+
+Two separate post-processing features over recognized text.
+
+### Punctuation restoration
+
+Backed by sherpa-onnx's punctuation C API. One `Punctuation` instance can hold
+either or both models:
+
+| Model | Config field | Method | Languages |
+|---|---|---|---|
+| Offline CT-Transformer | `ctTransformer` | `addPunct(text)` | Chinese + English |
+| Online CNN-BiLSTM | `cnnBilstm` + `bpeVocab` | `addPunctChunk(text)` | English |
+
+`addPunct` is whole-text: pass the full unpunctuated string. `addPunctChunk` is
+for streaming: pass one text fragment at a time and concatenate the results —
+the CNN-BiLSTM processes each fragment independently. Each method rejects when
+its backing model was not configured.
+
+#### Model files
+
+```
+punct/
+  model.onnx                      # sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12
+  model.int8.onnx                 # sherpa-onnx-online-punct-en-2024-08-06
+  bpe.vocab                       # required alongside cnnBilstm
+```
+
+Both are available from the
+[`punctuation-models`](https://github.com/k2-fsa/sherpa-onnx/releases/tag/punctuation-models)
+release.
+
+#### Example
+
+```typescript
+const punct = speech.createPunctuation();
+await punct.load({
+  modelDir: `${RNFS.DocumentDirectoryPath}/punct`,
+  ctTransformer: "model.onnx",
+  cnnBilstm: "model.int8.onnx",
+  bpeVocab: "bpe.vocab",
+  numThreads: 2,
+});
+
+console.log(punct.isOfflineLoaded(), punct.isOnlineLoaded());
+
+// Offline: whole text
+console.log(await punct.addPunct("how are you i am fine"));
+// -> "how are you? i am fine."
+
+// Online: one streaming fragment at a time
+console.log(await punct.addPunctChunk("how are you"));
+// -> "how are you?"
+```
+
+### Inverse text normalization (ITN)
+
+sherpa-onnx has no standalone ITN C API — ITN is applied through **rule FSTs**
+(`rule_fsts` / `rule_fars`), which are loaded into the recognizer and rewrite
+the output text before it is returned (e.g. `"一二三"` → `"123"`). The same
+fields on `TtsModelConfig` do the reverse (text normalization) on TTS input.
+
+Set them on `AsrModelConfig` (offline and streaming) or `TtsModelConfig`:
+
+```typescript
+const asr = speech.createOfflineAsr();
+await asr.load({
+  type: "sense_voice",
+  modelDir: `${RNFS.DocumentDirectoryPath}/sense-voice`,
+  tokensPath: "tokens.txt",
+  model: "model.int8.onnx",
+  useItn: true, // SenseVoice's built-in ITN
+  ruleFsts: "number.fst, date.fst", // FST-based ITN
+  ruleFars: "rules.far", // optional FAR archives
+});
+
+const result = await asr.recognize(samples);
+```
+
+Comma-separated lists are supported. Each entry is resolved against `modelDir`
+unless absolute. Leave both fields unset (the default) to disable ITN.
+
+Rule FSTs come from the FST archives bundled with TTS model releases, e.g.
+[`vits-zh-hf-fanchen-C`](https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models)
+ships `date.fst`, `phone.fst`, `number.fst`, `new_heteronym.fst`.
+
+> **Note:** `useItn` and `ruleFsts` are independent. `useItn` only affects
+> SenseVoice (and is on by default); `ruleFsts`/`ruleFars` apply FST rules to
+> the final text regardless of model type.
+
 ## Execution Providers
 
 By default, the module selects a platform-appropriate execution provider:
@@ -914,6 +1007,18 @@ Every native inference task runs on a background thread pool (`Promise::async` f
 - Keyword spotting
 
 JS calls return promises that resolve on the JS thread when the background work completes. Native event callbacks (VAD speech start/end, streaming partial/final results, ASR/TTS errors) are dispatched to JS without blocking inference.
+
+### Choosing `numThreads`
+
+Each model config takes a `numThreads` option (default `2`) passed straight to ONNX Runtime. To size it from the device, use `getCpuCoreCount()`:
+
+```typescript
+const speech = getOnnxSpeech();
+const cores = speech.getCpuCoreCount(); // e.g. 8
+await asr.load({ /* ... */ numThreads: Math.max(1, cores) });
+```
+
+It reports the hardware threads (logical CPU cores) currently available — the value returned by `std::thread::hardware_concurrency()`, so it reflects online cores on big.LITTLE chipsets. It returns `0` when the value is not computable, hence the `Math.max(1, ...)` guard.
 
 ## Testing
 

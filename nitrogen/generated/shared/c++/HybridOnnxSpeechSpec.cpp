@@ -24,6 +24,8 @@ namespace margelo::nitro::onnx::speech {
       prototype.registerHybridMethod("createLanguageId", &HybridOnnxSpeechSpec::createLanguageId);
       prototype.registerHybridMethod("createSpeechEnhancement", &HybridOnnxSpeechSpec::createSpeechEnhancement);
       prototype.registerHybridMethod("createKeywordSpotter", &HybridOnnxSpeechSpec::createKeywordSpotter);
+      prototype.registerHybridMethod("createPunctuation", &HybridOnnxSpeechSpec::createPunctuation);
+      prototype.registerHybridMethod("getCpuCoreCount", &HybridOnnxSpeechSpec::getCpuCoreCount);
       prototype.registerHybridMethod("getQualcommSoc", &HybridOnnxSpeechSpec::getQualcommSoc);
     });
   }

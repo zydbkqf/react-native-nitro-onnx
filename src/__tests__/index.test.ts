@@ -15,6 +15,7 @@ import type {
   LanguageId,
   SpeechEnhancement,
   KeywordSpotter,
+  Punctuation,
 } from "../specs/OnnxSpeech.nitro";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -112,6 +113,16 @@ describe("react-native-nitro-onnx public API", () => {
     unload: jest.fn(async () => {}),
   } as unknown as KeywordSpotter;
 
+  const mockPunctuation: Punctuation = {
+    load: jest.fn(async () => {}),
+    isLoaded: jest.fn(() => false),
+    isOfflineLoaded: jest.fn(() => false),
+    isOnlineLoaded: jest.fn(() => false),
+    addPunct: jest.fn(async () => ""),
+    addPunctChunk: jest.fn(async () => ""),
+    unload: jest.fn(async () => {}),
+  } as unknown as Punctuation;
+
   const mockOnnxSpeech: OnnxSpeech = {
     createVad: jest.fn(() => mockVad),
     createOfflineAsr: jest.fn(() => mockOfflineAsr),
@@ -122,7 +133,10 @@ describe("react-native-nitro-onnx public API", () => {
     createLanguageId: jest.fn(() => mockLanguageId),
     createSpeechEnhancement: jest.fn(() => mockSpeechEnhancement),
     createKeywordSpotter: jest.fn(() => mockKeywordSpotter),
+    createPunctuation: jest.fn(() => mockPunctuation),
     version: packageVersion,
+    getCpuCoreCount: jest.fn(() => 8),
+    getQualcommSoc: jest.fn(() => ""),
   } as unknown as OnnxSpeech;
 
   beforeAll(() => {
@@ -150,6 +164,7 @@ describe("react-native-nitro-onnx public API", () => {
     expect(speech.createLanguageId()).toBe(mockLanguageId);
     expect(speech.createSpeechEnhancement()).toBe(mockSpeechEnhancement);
     expect(speech.createKeywordSpotter()).toBe(mockKeywordSpotter);
+    expect(speech.createPunctuation()).toBe(mockPunctuation);
   });
 
   it("exposes hotword APIs on ASR", async () => {
@@ -182,8 +197,86 @@ describe("react-native-nitro-onnx public API", () => {
     expect(await speaker.getBestMatches(new ArrayBuffer(0), 0.4, 3)).toEqual([]);
   });
 
+  it("exposes punctuation APIs (offline + online)", async () => {
+    const speech = getOnnxSpeech();
+    const punct = speech.createPunctuation();
+    await punct.load({
+      modelDir: "/models/punct",
+      ctTransformer: "model.onnx",
+      cnnBilstm: "model.int8.onnx",
+      bpeVocab: "bpe.vocab",
+    });
+    expect(mockPunctuation.load).toHaveBeenCalledWith({
+      modelDir: "/models/punct",
+      ctTransformer: "model.onnx",
+      cnnBilstm: "model.int8.onnx",
+      bpeVocab: "bpe.vocab",
+    });
+
+    (mockPunctuation.addPunct as jest.Mock).mockResolvedValue("how are you? i am fine.");
+    (mockPunctuation.addPunctChunk as jest.Mock).mockResolvedValue("how are you?");
+    expect(await punct.addPunct("how are you i am fine")).toBe("how are you? i am fine.");
+    expect(await punct.addPunctChunk("how are you")).toBe("how are you?");
+    expect(mockPunctuation.addPunct).toHaveBeenCalledWith("how are you i am fine");
+    expect(mockPunctuation.addPunctChunk).toHaveBeenCalledWith("how are you");
+
+    (mockPunctuation.isOfflineLoaded as jest.Mock).mockReturnValue(true);
+    (mockPunctuation.isOnlineLoaded as jest.Mock).mockReturnValue(true);
+    expect(punct.isOfflineLoaded()).toBe(true);
+    expect(punct.isOnlineLoaded()).toBe(true);
+  });
+
+  it("accepts ITN ruleFsts / ruleFars on ASR and TTS", async () => {
+    const speech = getOnnxSpeech();
+    const asr = speech.createOfflineAsr();
+    await asr.load({
+      type: "sense_voice",
+      modelDir: "/models/sense-voice",
+      tokensPath: "tokens.txt",
+      model: "model.int8.onnx",
+      ruleFsts: "number.fst, date.fst",
+      ruleFars: "rules.far",
+    });
+    expect(mockOfflineAsr.load).toHaveBeenCalledWith(
+      expect.objectContaining({ ruleFsts: "number.fst, date.fst", ruleFars: "rules.far" })
+    );
+
+    const streaming = speech.createStreamingAsr();
+    await streaming.load({
+      type: "zipformer",
+      modelDir: "/models/zipformer",
+      tokensPath: "tokens.txt",
+      encoder: "encoder.onnx",
+      decoder: "decoder.onnx",
+      joiner: "joiner.onnx",
+      ruleFsts: "number.fst",
+    });
+    expect(mockStreamingAsr.load).toHaveBeenCalledWith(
+      expect.objectContaining({ ruleFsts: "number.fst" })
+    );
+
+    const tts = speech.createTts();
+    await tts.load({
+      type: "vits",
+      modelDir: "/models/vits",
+      model: "model.onnx",
+      tokens: "tokens.txt",
+      ruleFsts: "date.fst, phone.fst",
+      ruleFars: "tn.far",
+    });
+    expect(mockTts.load).toHaveBeenCalledWith(
+      expect.objectContaining({ ruleFsts: "date.fst, phone.fst", ruleFars: "tn.far" })
+    );
+  });
+
   it("reports the module version", () => {
     const speech = getOnnxSpeech();
     expect(speech.version).toBe(packageVersion);
+  });
+
+  it("reports the CPU core count", () => {
+    const speech = getOnnxSpeech();
+    expect(speech.getCpuCoreCount()).toBe(8);
+    expect(mockOnnxSpeech.getCpuCoreCount).toHaveBeenCalled();
   });
 });

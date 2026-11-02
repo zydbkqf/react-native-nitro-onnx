@@ -6,6 +6,7 @@
 #include "sherpa-onnx/c-api/c-api.h"
 
 #include <cstring>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <cstdio>
@@ -35,6 +36,30 @@ std::string joinPath(const std::string& dir, const std::string& file) {
     return dir + file;
   }
   return dir + "/" + file;
+}
+
+// rule_fsts / rule_fars are comma-separated file lists. Each entry resolves
+// against the model directory unless absolute, matching the other file fields.
+std::string resolveRuleList(const std::string& dir, const std::string& list) {
+  if (list.empty()) {
+    return list;
+  }
+  std::string out;
+  std::stringstream ss(list);
+  std::string entry;
+  while (std::getline(ss, entry, ',')) {
+    size_t b = entry.find_first_not_of(" \t");
+    if (b == std::string::npos) {
+      continue;
+    }
+    size_t e = entry.find_last_not_of(" \t");
+    entry = entry.substr(b, e - b + 1);
+    if (!out.empty()) {
+      out += ",";
+    }
+    out += joinPath(dir, entry);
+  }
+  return out;
 }
 
 void checkFile(const std::string& path, const std::string& name) {
@@ -154,8 +179,11 @@ void TtsEngine::load(const TtsEngineConfig& config) {
     c.model.num_threads = config_.numThreads;
     c.model.debug = config_.debug ? 1 : 0;
     c.model.provider = config_.provider.c_str();
-    c.rule_fsts = "";
-    c.rule_fars = "";
+    // Resolved rule lists must outlive the Create call. Empty means no TN.
+    std::string ruleFsts = resolveRuleList(config_.modelDir, config_.ruleFsts);
+    std::string ruleFars = resolveRuleList(config_.modelDir, config_.ruleFars);
+    c.rule_fsts = ruleFsts.c_str();
+    c.rule_fars = ruleFars.c_str();
     c.max_num_sentences = 1;
 
     const SherpaOnnxOfflineTts* tts = SherpaOnnxCreateOfflineTts(&c);

@@ -55,6 +55,8 @@ std::shared_ptr<Promise<void>> OfflineAsr::load(const AsrModelConfig& config) {
     native.hotwordsFile = config.hotwordsFile.value_or("");
     native.hotwordsBuf = config.hotwordsBuf.value_or("");
     native.hotwordsScore = static_cast<float>(config.hotwordsScore.value_or(1.5));
+    native.ruleFsts = config.ruleFsts.value_or("");
+    native.ruleFars = config.ruleFars.value_or("");
     native.debug = config.debug.value_or(false);
 #if defined(__ANDROID__)
     // QNN (Qualcomm NPU) is opt-in only: compiling with -DQNN_ROOT makes the

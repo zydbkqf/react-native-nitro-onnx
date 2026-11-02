@@ -9,6 +9,7 @@
 #include <HybridOnnxSpeechSpec.hpp>
 #include <HybridLanguageIdSpec.hpp>
 #include <HybridOfflineAsrSpec.hpp>
+#include <HybridPunctuationSpec.hpp>
 #include <HybridSpeakerDiarizationSpec.hpp>
 #include <HybridSpeakerManagerSpec.hpp>
 #include <HybridSpeechEnhancementSpec.hpp>
@@ -37,7 +38,9 @@ class NitroOnnxSpeech : public HybridOnnxSpeechSpec {
   std::shared_ptr<HybridLanguageIdSpec> createLanguageId() override;
   std::shared_ptr<HybridSpeechEnhancementSpec> createSpeechEnhancement() override;
   std::shared_ptr<HybridKeywordSpotterSpec> createKeywordSpotter() override;
+  std::shared_ptr<HybridPunctuationSpec> createPunctuation() override;
   std::string getVersion() override;
+  double getCpuCoreCount() override;
   std::string getQualcommSoc() override;
 };
 

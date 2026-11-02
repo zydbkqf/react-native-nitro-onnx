@@ -42,6 +42,7 @@ target_sources(
   ../nitrogen/generated/shared/c++/HybridLanguageIdSpec.cpp
   ../nitrogen/generated/shared/c++/HybridSpeechEnhancementSpec.cpp
   ../nitrogen/generated/shared/c++/HybridKeywordSpotterSpec.cpp
+  ../nitrogen/generated/shared/c++/HybridPunctuationSpec.cpp
   ../nitrogen/generated/shared/c++/HybridOnnxSpeechSpec.cpp
   # Android-specific Nitrogen C++ sources
   

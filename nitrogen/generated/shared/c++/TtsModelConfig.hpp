@@ -66,12 +66,14 @@ namespace margelo::nitro::onnx::speech {
     std::optional<double> outputSampleRate     SWIFT_PRIVATE;
     std::optional<double> speakerId     SWIFT_PRIVATE;
     std::optional<double> speed     SWIFT_PRIVATE;
+    std::optional<std::string> ruleFsts     SWIFT_PRIVATE;
+    std::optional<std::string> ruleFars     SWIFT_PRIVATE;
     std::optional<bool> debug     SWIFT_PRIVATE;
     std::optional<std::string> provider     SWIFT_PRIVATE;
 
   public:
     TtsModelConfig() = default;
-    explicit TtsModelConfig(TtsModelType type, std::string modelDir, std::optional<std::string> model, std::optional<std::string> acousticModel, std::optional<std::string> vocoder, std::optional<std::string> tokens, std::optional<std::string> lexicon, std::optional<std::string> voices, std::optional<std::string> espeakNgData, std::optional<std::string> dictDir, std::optional<std::string> lmMain, std::optional<std::string> lmFlow, std::optional<std::string> textConditioner, std::optional<std::string> pocketEncoder, std::optional<std::string> pocketDecoder, std::optional<std::string> vocabJson, std::optional<std::string> tokenScoresJson, std::optional<std::string> zipvoiceEncoder, std::optional<std::string> zipvoiceDecoder, std::optional<std::string> config, std::optional<double> numThreads, std::optional<double> outputSampleRate, std::optional<double> speakerId, std::optional<double> speed, std::optional<bool> debug, std::optional<std::string> provider): type(type), modelDir(modelDir), model(model), acousticModel(acousticModel), vocoder(vocoder), tokens(tokens), lexicon(lexicon), voices(voices), espeakNgData(espeakNgData), dictDir(dictDir), lmMain(lmMain), lmFlow(lmFlow), textConditioner(textConditioner), pocketEncoder(pocketEncoder), pocketDecoder(pocketDecoder), vocabJson(vocabJson), tokenScoresJson(tokenScoresJson), zipvoiceEncoder(zipvoiceEncoder), zipvoiceDecoder(zipvoiceDecoder), config(config), numThreads(numThreads), outputSampleRate(outputSampleRate), speakerId(speakerId), speed(speed), debug(debug), provider(provider) {}
+    explicit TtsModelConfig(TtsModelType type, std::string modelDir, std::optional<std::string> model, std::optional<std::string> acousticModel, std::optional<std::string> vocoder, std::optional<std::string> tokens, std::optional<std::string> lexicon, std::optional<std::string> voices, std::optional<std::string> espeakNgData, std::optional<std::string> dictDir, std::optional<std::string> lmMain, std::optional<std::string> lmFlow, std::optional<std::string> textConditioner, std::optional<std::string> pocketEncoder, std::optional<std::string> pocketDecoder, std::optional<std::string> vocabJson, std::optional<std::string> tokenScoresJson, std::optional<std::string> zipvoiceEncoder, std::optional<std::string> zipvoiceDecoder, std::optional<std::string> config, std::optional<double> numThreads, std::optional<double> outputSampleRate, std::optional<double> speakerId, std::optional<double> speed, std::optional<std::string> ruleFsts, std::optional<std::string> ruleFars, std::optional<bool> debug, std::optional<std::string> provider): type(type), modelDir(modelDir), model(model), acousticModel(acousticModel), vocoder(vocoder), tokens(tokens), lexicon(lexicon), voices(voices), espeakNgData(espeakNgData), dictDir(dictDir), lmMain(lmMain), lmFlow(lmFlow), textConditioner(textConditioner), pocketEncoder(pocketEncoder), pocketDecoder(pocketDecoder), vocabJson(vocabJson), tokenScoresJson(tokenScoresJson), zipvoiceEncoder(zipvoiceEncoder), zipvoiceDecoder(zipvoiceDecoder), config(config), numThreads(numThreads), outputSampleRate(outputSampleRate), speakerId(speakerId), speed(speed), ruleFsts(ruleFsts), ruleFars(ruleFars), debug(debug), provider(provider) {}
 
   public:
     friend bool operator==(const TtsModelConfig& lhs, const TtsModelConfig& rhs) = default;
@@ -111,6 +113,8 @@ namespace margelo::nitro {
         JSIConverter<std::optional<double>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "outputSampleRate"))),
         JSIConverter<std::optional<double>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "speakerId"))),
         JSIConverter<std::optional<double>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "speed"))),
+        JSIConverter<std::optional<std::string>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "ruleFsts"))),
+        JSIConverter<std::optional<std::string>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "ruleFars"))),
         JSIConverter<std::optional<bool>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "debug"))),
         JSIConverter<std::optional<std::string>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "provider")))
       );
@@ -141,6 +145,8 @@ namespace margelo::nitro {
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "outputSampleRate"), JSIConverter<std::optional<double>>::toJSI(runtime, arg.outputSampleRate));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "speakerId"), JSIConverter<std::optional<double>>::toJSI(runtime, arg.speakerId));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "speed"), JSIConverter<std::optional<double>>::toJSI(runtime, arg.speed));
+      obj.setProperty(runtime, PropNameIDCache::get(runtime, "ruleFsts"), JSIConverter<std::optional<std::string>>::toJSI(runtime, arg.ruleFsts));
+      obj.setProperty(runtime, PropNameIDCache::get(runtime, "ruleFars"), JSIConverter<std::optional<std::string>>::toJSI(runtime, arg.ruleFars));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "debug"), JSIConverter<std::optional<bool>>::toJSI(runtime, arg.debug));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "provider"), JSIConverter<std::optional<std::string>>::toJSI(runtime, arg.provider));
       return obj;
@@ -177,6 +183,8 @@ namespace margelo::nitro {
       if (!JSIConverter<std::optional<double>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "outputSampleRate")))) return false;
       if (!JSIConverter<std::optional<double>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "speakerId")))) return false;
       if (!JSIConverter<std::optional<double>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "speed")))) return false;
+      if (!JSIConverter<std::optional<std::string>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "ruleFsts")))) return false;
+      if (!JSIConverter<std::optional<std::string>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "ruleFars")))) return false;
       if (!JSIConverter<std::optional<bool>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "debug")))) return false;
       if (!JSIConverter<std::optional<std::string>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "provider")))) return false;
       return true;
