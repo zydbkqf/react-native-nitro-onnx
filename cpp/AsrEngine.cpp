@@ -433,8 +433,18 @@ AsrEngineResult StreamingAsrEngine::finalize() {
     if (recognizer_ == nullptr || stream_ == nullptr) {
       throw std::runtime_error("Streaming ASR not loaded");
     }
+    // sherpa-onnx decodes fixed-size chunks and never pads a short final chunk;
+    // Decode() asserts without a full chunk. Feed trailing silence first (the
+    // convention used by sherpa-onnx's own examples) so the tail of speech lands
+    // in a complete chunk, then drain only ready chunks so the frozen silence
+    // remainder is dropped instead of asserted on.
+    std::vector<float> tail(12800, 0.0f);  // 0.8 s at 16 kHz
+    SherpaOnnxOnlineStreamAcceptWaveform(
+        stream_.get(), 16000, tail.data(), static_cast<int32_t>(tail.size()));
     SherpaOnnxOnlineStreamInputFinished(stream_.get());
-    SherpaOnnxDecodeOnlineStream(recognizer_.get(), stream_.get());
+    while (SherpaOnnxIsOnlineStreamReady(recognizer_.get(), stream_.get())) {
+      SherpaOnnxDecodeOnlineStream(recognizer_.get(), stream_.get());
+    }
     const SherpaOnnxOnlineRecognizerResult* raw =
         SherpaOnnxGetOnlineStreamResult(recognizer_.get(), stream_.get());
     if (raw != nullptr) {
