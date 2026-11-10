@@ -47,13 +47,14 @@ namespace margelo::nitro::onnx::speech {
     std::optional<double> threshold     SWIFT_PRIVATE;
     std::optional<double> minDurationOn     SWIFT_PRIVATE;
     std::optional<double> minDurationOff     SWIFT_PRIVATE;
+    std::optional<bool> computeConfidence     SWIFT_PRIVATE;
     std::optional<double> numThreads     SWIFT_PRIVATE;
     std::optional<bool> debug     SWIFT_PRIVATE;
     std::optional<std::string> provider     SWIFT_PRIVATE;
 
   public:
     SpeakerDiarizationConfig() = default;
-    explicit SpeakerDiarizationConfig(std::string modelDir, std::string segmentationModel, std::string embeddingModel, std::optional<double> numClusters, std::optional<double> threshold, std::optional<double> minDurationOn, std::optional<double> minDurationOff, std::optional<double> numThreads, std::optional<bool> debug, std::optional<std::string> provider): modelDir(modelDir), segmentationModel(segmentationModel), embeddingModel(embeddingModel), numClusters(numClusters), threshold(threshold), minDurationOn(minDurationOn), minDurationOff(minDurationOff), numThreads(numThreads), debug(debug), provider(provider) {}
+    explicit SpeakerDiarizationConfig(std::string modelDir, std::string segmentationModel, std::string embeddingModel, std::optional<double> numClusters, std::optional<double> threshold, std::optional<double> minDurationOn, std::optional<double> minDurationOff, std::optional<bool> computeConfidence, std::optional<double> numThreads, std::optional<bool> debug, std::optional<std::string> provider): modelDir(modelDir), segmentationModel(segmentationModel), embeddingModel(embeddingModel), numClusters(numClusters), threshold(threshold), minDurationOn(minDurationOn), minDurationOff(minDurationOff), computeConfidence(computeConfidence), numThreads(numThreads), debug(debug), provider(provider) {}
 
   public:
     friend bool operator==(const SpeakerDiarizationConfig& lhs, const SpeakerDiarizationConfig& rhs) = default;
@@ -76,6 +77,7 @@ namespace margelo::nitro {
         JSIConverter<std::optional<double>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "threshold"))),
         JSIConverter<std::optional<double>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "minDurationOn"))),
         JSIConverter<std::optional<double>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "minDurationOff"))),
+        JSIConverter<std::optional<bool>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "computeConfidence"))),
         JSIConverter<std::optional<double>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "numThreads"))),
         JSIConverter<std::optional<bool>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "debug"))),
         JSIConverter<std::optional<std::string>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "provider")))
@@ -90,6 +92,7 @@ namespace margelo::nitro {
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "threshold"), JSIConverter<std::optional<double>>::toJSI(runtime, arg.threshold));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "minDurationOn"), JSIConverter<std::optional<double>>::toJSI(runtime, arg.minDurationOn));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "minDurationOff"), JSIConverter<std::optional<double>>::toJSI(runtime, arg.minDurationOff));
+      obj.setProperty(runtime, PropNameIDCache::get(runtime, "computeConfidence"), JSIConverter<std::optional<bool>>::toJSI(runtime, arg.computeConfidence));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "numThreads"), JSIConverter<std::optional<double>>::toJSI(runtime, arg.numThreads));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "debug"), JSIConverter<std::optional<bool>>::toJSI(runtime, arg.debug));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "provider"), JSIConverter<std::optional<std::string>>::toJSI(runtime, arg.provider));
@@ -110,6 +113,7 @@ namespace margelo::nitro {
       if (!JSIConverter<std::optional<double>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "threshold")))) return false;
       if (!JSIConverter<std::optional<double>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "minDurationOn")))) return false;
       if (!JSIConverter<std::optional<double>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "minDurationOff")))) return false;
+      if (!JSIConverter<std::optional<bool>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "computeConfidence")))) return false;
       if (!JSIConverter<std::optional<double>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "numThreads")))) return false;
       if (!JSIConverter<std::optional<bool>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "debug")))) return false;
       if (!JSIConverter<std::optional<std::string>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "provider")))) return false;

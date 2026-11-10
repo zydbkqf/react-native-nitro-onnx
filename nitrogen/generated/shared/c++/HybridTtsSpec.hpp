@@ -26,6 +26,7 @@ namespace margelo::nitro::onnx::speech { struct TtsReference; }
 #include <string>
 #include <optional>
 #include "TtsReference.hpp"
+#include <vector>
 
 namespace margelo::nitro::onnx::speech {
 
@@ -61,6 +62,7 @@ namespace margelo::nitro::onnx::speech {
       virtual std::shared_ptr<Promise<void>> load(const TtsModelConfig& config) = 0;
       virtual bool isLoaded() = 0;
       virtual std::shared_ptr<Promise<TtsResult>> synthesize(const std::string& text, std::optional<double> speed, const std::optional<TtsReference>& reference) = 0;
+      virtual std::shared_ptr<Promise<TtsResult>> synthesizePhonemes(const std::vector<std::vector<double>>& phonemeCodepoints, std::optional<double> speed, const std::optional<TtsReference>& reference) = 0;
       virtual std::shared_ptr<Promise<TtsResult>> synthesizeWithSpeaker(const std::string& text, const std::string& speakerId, std::optional<double> speed, const std::optional<std::string>& referenceText) = 0;
       virtual std::shared_ptr<Promise<void>> saveWav(const TtsResult& result, const std::string& path) = 0;
       virtual std::shared_ptr<Promise<void>> unload() = 0;

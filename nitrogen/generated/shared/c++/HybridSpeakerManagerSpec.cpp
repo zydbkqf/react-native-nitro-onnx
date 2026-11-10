@@ -17,6 +17,8 @@ namespace margelo::nitro::onnx::speech {
       prototype.registerHybridMethod("load", &HybridSpeakerManagerSpec::load);
       prototype.registerHybridMethod("isLoaded", &HybridSpeakerManagerSpec::isLoaded);
       prototype.registerHybridMethod("computeEmbedding", &HybridSpeakerManagerSpec::computeEmbedding);
+      prototype.registerHybridMethod("dim", &HybridSpeakerManagerSpec::dim);
+      prototype.registerHybridMethod("getEmbedding", &HybridSpeakerManagerSpec::getEmbedding);
       prototype.registerHybridMethod("registerSpeaker", &HybridSpeakerManagerSpec::registerSpeaker);
       prototype.registerHybridMethod("registerSpeakerFromFile", &HybridSpeakerManagerSpec::registerSpeakerFromFile);
       prototype.registerHybridMethod("listSpeakers", &HybridSpeakerManagerSpec::listSpeakers);

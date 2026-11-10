@@ -30,7 +30,7 @@
 
 
 
-
+#include <optional>
 
 namespace margelo::nitro::onnx::speech {
 
@@ -42,10 +42,11 @@ namespace margelo::nitro::onnx::speech {
     double startMs     SWIFT_PRIVATE;
     double endMs     SWIFT_PRIVATE;
     double speaker     SWIFT_PRIVATE;
+    std::optional<double> confidence     SWIFT_PRIVATE;
 
   public:
     DiarizationSegment() = default;
-    explicit DiarizationSegment(double startMs, double endMs, double speaker): startMs(startMs), endMs(endMs), speaker(speaker) {}
+    explicit DiarizationSegment(double startMs, double endMs, double speaker, std::optional<double> confidence): startMs(startMs), endMs(endMs), speaker(speaker), confidence(confidence) {}
 
   public:
     friend bool operator==(const DiarizationSegment& lhs, const DiarizationSegment& rhs) = default;
@@ -63,7 +64,8 @@ namespace margelo::nitro {
       return margelo::nitro::onnx::speech::DiarizationSegment(
         JSIConverter<double>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "startMs"))),
         JSIConverter<double>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "endMs"))),
-        JSIConverter<double>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "speaker")))
+        JSIConverter<double>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "speaker"))),
+        JSIConverter<std::optional<double>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "confidence")))
       );
     }
     static inline jsi::Value toJSI(jsi::Runtime& runtime, const margelo::nitro::onnx::speech::DiarizationSegment& arg) {
@@ -71,6 +73,7 @@ namespace margelo::nitro {
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "startMs"), JSIConverter<double>::toJSI(runtime, arg.startMs));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "endMs"), JSIConverter<double>::toJSI(runtime, arg.endMs));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "speaker"), JSIConverter<double>::toJSI(runtime, arg.speaker));
+      obj.setProperty(runtime, PropNameIDCache::get(runtime, "confidence"), JSIConverter<std::optional<double>>::toJSI(runtime, arg.confidence));
       return obj;
     }
     static inline bool canConvert(jsi::Runtime& runtime, const jsi::Value& value) {
@@ -84,6 +87,7 @@ namespace margelo::nitro {
       if (!JSIConverter<double>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "startMs")))) return false;
       if (!JSIConverter<double>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "endMs")))) return false;
       if (!JSIConverter<double>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "speaker")))) return false;
+      if (!JSIConverter<std::optional<double>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "confidence")))) return false;
       return true;
     }
   };

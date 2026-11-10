@@ -23,8 +23,8 @@ namespace margelo::nitro::onnx::speech { struct SpeakerMatch; }
 #include <NitroModules/Promise.hpp>
 #include "SpeakerEmbeddingConfig.hpp"
 #include <NitroModules/ArrayBuffer.hpp>
-#include "RegisteredSpeaker.hpp"
 #include <string>
+#include "RegisteredSpeaker.hpp"
 #include <vector>
 #include "SpeakerMatch.hpp"
 
@@ -62,6 +62,8 @@ namespace margelo::nitro::onnx::speech {
       virtual std::shared_ptr<Promise<void>> load(const SpeakerEmbeddingConfig& config) = 0;
       virtual bool isLoaded() = 0;
       virtual std::shared_ptr<Promise<std::shared_ptr<ArrayBuffer>>> computeEmbedding(const std::shared_ptr<ArrayBuffer>& samples) = 0;
+      virtual double dim() = 0;
+      virtual std::shared_ptr<Promise<std::shared_ptr<ArrayBuffer>>> getEmbedding(const std::string& id) = 0;
       virtual std::shared_ptr<Promise<RegisteredSpeaker>> registerSpeaker(const std::string& id, const std::string& name, const std::shared_ptr<ArrayBuffer>& embedding) = 0;
       virtual std::shared_ptr<Promise<RegisteredSpeaker>> registerSpeakerFromFile(const std::string& id, const std::string& name, const std::string& path) = 0;
       virtual std::shared_ptr<Promise<std::vector<RegisteredSpeaker>>> listSpeakers() = 0;

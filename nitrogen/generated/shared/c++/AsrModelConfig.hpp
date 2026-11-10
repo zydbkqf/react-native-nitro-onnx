@@ -64,10 +64,12 @@ namespace margelo::nitro::onnx::speech {
     std::optional<std::string> ruleFars     SWIFT_PRIVATE;
     std::optional<bool> debug     SWIFT_PRIVATE;
     std::optional<std::string> provider     SWIFT_PRIVATE;
+    std::optional<std::string> qnnBackendLib     SWIFT_PRIVATE;
+    std::optional<std::string> qnnSystemLib     SWIFT_PRIVATE;
 
   public:
     AsrModelConfig() = default;
-    explicit AsrModelConfig(AsrModelType type, std::string modelDir, std::string tokensPath, std::optional<std::string> whisperEncoder, std::optional<std::string> whisperDecoder, std::optional<std::string> encoder, std::optional<std::string> decoder, std::optional<std::string> joiner, std::optional<std::string> model, std::optional<std::string> config, std::optional<double> numThreads, std::optional<std::string> decodingMethod, std::optional<double> maxActivePaths, std::optional<std::string> language, std::optional<bool> useItn, std::optional<std::string> hotwordsFile, std::optional<std::string> hotwordsBuf, std::optional<double> hotwordsScore, std::optional<std::string> ruleFsts, std::optional<std::string> ruleFars, std::optional<bool> debug, std::optional<std::string> provider): type(type), modelDir(modelDir), tokensPath(tokensPath), whisperEncoder(whisperEncoder), whisperDecoder(whisperDecoder), encoder(encoder), decoder(decoder), joiner(joiner), model(model), config(config), numThreads(numThreads), decodingMethod(decodingMethod), maxActivePaths(maxActivePaths), language(language), useItn(useItn), hotwordsFile(hotwordsFile), hotwordsBuf(hotwordsBuf), hotwordsScore(hotwordsScore), ruleFsts(ruleFsts), ruleFars(ruleFars), debug(debug), provider(provider) {}
+    explicit AsrModelConfig(AsrModelType type, std::string modelDir, std::string tokensPath, std::optional<std::string> whisperEncoder, std::optional<std::string> whisperDecoder, std::optional<std::string> encoder, std::optional<std::string> decoder, std::optional<std::string> joiner, std::optional<std::string> model, std::optional<std::string> config, std::optional<double> numThreads, std::optional<std::string> decodingMethod, std::optional<double> maxActivePaths, std::optional<std::string> language, std::optional<bool> useItn, std::optional<std::string> hotwordsFile, std::optional<std::string> hotwordsBuf, std::optional<double> hotwordsScore, std::optional<std::string> ruleFsts, std::optional<std::string> ruleFars, std::optional<bool> debug, std::optional<std::string> provider, std::optional<std::string> qnnBackendLib, std::optional<std::string> qnnSystemLib): type(type), modelDir(modelDir), tokensPath(tokensPath), whisperEncoder(whisperEncoder), whisperDecoder(whisperDecoder), encoder(encoder), decoder(decoder), joiner(joiner), model(model), config(config), numThreads(numThreads), decodingMethod(decodingMethod), maxActivePaths(maxActivePaths), language(language), useItn(useItn), hotwordsFile(hotwordsFile), hotwordsBuf(hotwordsBuf), hotwordsScore(hotwordsScore), ruleFsts(ruleFsts), ruleFars(ruleFars), debug(debug), provider(provider), qnnBackendLib(qnnBackendLib), qnnSystemLib(qnnSystemLib) {}
 
   public:
     friend bool operator==(const AsrModelConfig& lhs, const AsrModelConfig& rhs) = default;
@@ -104,7 +106,9 @@ namespace margelo::nitro {
         JSIConverter<std::optional<std::string>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "ruleFsts"))),
         JSIConverter<std::optional<std::string>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "ruleFars"))),
         JSIConverter<std::optional<bool>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "debug"))),
-        JSIConverter<std::optional<std::string>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "provider")))
+        JSIConverter<std::optional<std::string>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "provider"))),
+        JSIConverter<std::optional<std::string>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "qnnBackendLib"))),
+        JSIConverter<std::optional<std::string>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "qnnSystemLib")))
       );
     }
     static inline jsi::Value toJSI(jsi::Runtime& runtime, const margelo::nitro::onnx::speech::AsrModelConfig& arg) {
@@ -131,6 +135,8 @@ namespace margelo::nitro {
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "ruleFars"), JSIConverter<std::optional<std::string>>::toJSI(runtime, arg.ruleFars));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "debug"), JSIConverter<std::optional<bool>>::toJSI(runtime, arg.debug));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "provider"), JSIConverter<std::optional<std::string>>::toJSI(runtime, arg.provider));
+      obj.setProperty(runtime, PropNameIDCache::get(runtime, "qnnBackendLib"), JSIConverter<std::optional<std::string>>::toJSI(runtime, arg.qnnBackendLib));
+      obj.setProperty(runtime, PropNameIDCache::get(runtime, "qnnSystemLib"), JSIConverter<std::optional<std::string>>::toJSI(runtime, arg.qnnSystemLib));
       return obj;
     }
     static inline bool canConvert(jsi::Runtime& runtime, const jsi::Value& value) {
@@ -163,6 +169,8 @@ namespace margelo::nitro {
       if (!JSIConverter<std::optional<std::string>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "ruleFars")))) return false;
       if (!JSIConverter<std::optional<bool>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "debug")))) return false;
       if (!JSIConverter<std::optional<std::string>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "provider")))) return false;
+      if (!JSIConverter<std::optional<std::string>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "qnnBackendLib")))) return false;
+      if (!JSIConverter<std::optional<std::string>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "qnnSystemLib")))) return false;
       return true;
     }
   };

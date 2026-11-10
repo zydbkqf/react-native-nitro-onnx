@@ -239,3 +239,52 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+================================================================================
+3. ONNX Runtime
+Repository: https://github.com/microsoft/onnxruntime
+Version: 1.28.2 (vendored Android runtime libraries and iOS SherpaOnnxC.xcframework)
+License: MIT License (SPDX: MIT)
+Copyright (c) Microsoft Corporation. All rights reserved.
+
+Full MIT License text:
+
+MIT License
+
+Copyright (c) Microsoft Corporation. All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+COMPONENTS INTENTIONALLY NOT BUNDLED
+
+- espeak-ng (GPL-3.0) and piper-phonemize: the sherpa-onnx 1.13.x builds linked
+  espeak-ng. sherpa-onnx >= 2.0.0 dropped built-in espeak-ng phonemization, so
+  the vendored 2.0.1 artifacts (Android .so files and the iOS
+  SherpaOnnxC.xcframework) no longer contain espeak-ng.
+
+- Qualcomm QNN runtime libraries (libQnnHtp*.so, libQnnHtpPrepare.so,
+  libQnnSystem.so, libQnnCpu.so, libQnnHtpV*Stub.so): these are copied at build
+  time from a user-supplied QNN SDK (QNN_ROOT) into the APK's native library
+  directory. The Hexagon `libQnnHtpV*Skel.so` binaries are copied into the APK
+  assets and unpacked into the app's private files directory on first run,
+  because fastrpc reads them from the filesystem rather than from the APK. All
+  of these are Qualcomm proprietary components governed by your Qualcomm license
+  agreement, not by any open source license listed above. Do not redistribute
+  them unless your agreement permits it.

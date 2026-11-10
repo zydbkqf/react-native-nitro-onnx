@@ -166,11 +166,29 @@ export interface AsrModelConfig {
   debug?: boolean;
   /**
    * Execution provider for ONNX Runtime.
-   * Default: "nnapi" on Android (or "qnn" when built with -DQNN_ROOT),
-   *          "coreml" on iOS (Apple Neural Engine, unsupported ops fall back to CPU).
-   * Pass "cpu" explicitly to disable NPU acceleration.
+   * Default: "cpu" on every platform.
+   * "coreml" (Apple), "qnn" (Android, built with -DQNN_ROOT) and "nnapi"
+   * (Android, built with the NNAPI variant) are never selected automatically:
+   * pass them explicitly and benchmark against `provider: "cpu"` first —
+   * NPU offload can be slower than CPU.
    */
   provider?: string;
+  /**
+   * QNN only (`provider: "qnn"`). Path to `libQnnHtp.so`. Empty (default)
+   * resolves the library bundled in the app by soname.
+   */
+  qnnBackendLib?: string;
+  /**
+   * QNN only. Path to `libQnnSystem.so`; required when `encoder`, `decoder` and
+   * `joiner` are QNN context binaries (`*.bin`). Empty (default) resolves the
+   * bundled library by soname.
+   *
+   * Context binaries are not configured separately: when all three model fields
+   * end in `.bin` they are passed to sherpa in that order (encoder, decoder,
+   * joiner) as its three-entry context binary list. A partial set is rejected by
+   * sherpa, so either set all three to `.bin` files or none.
+   */
+  qnnSystemLib?: string;
 }
 
 export interface AsrResult {
@@ -271,9 +289,15 @@ export interface TtsModelConfig {
   lexicon?: string;
   /** Kokoro / Matcha voice data (e.g. voices.bin). */
   voices?: string;
-  /** Optional espeak-ng-data directory (Kokoro / VITS / Matcha / ZipVoice). */
+  /**
+   * @deprecated Ignored since sherpa-onnx 2.0, which no longer ships
+   * espeak-ng. TTS models now need a `lexicon` (Kokoro / Matcha / VITS /
+   * ZipVoice) or pre-phonemized tokens; passing this only logs a warning.
+   */
   espeakNgData?: string;
-  /** Optional dict directory (Kokoro / VITS / Matcha legacy field). */
+  /**
+   * @deprecated Unused since sherpa-onnx 1.12.15; kept for API compatibility.
+   */
   dictDir?: string;
   /** Pocket: lm_main ONNX file. */
   lmMain?: string;
@@ -319,7 +343,7 @@ export interface TtsModelConfig {
   debug?: boolean;
   /**
    * Execution provider for ONNX Runtime.
-   * Default: "cpu" on Android / Linux, "coreml" on iOS.
+   * Default: "cpu" on every platform.
    * Pass a provider explicitly to enable NPU acceleration.
    */
   provider?: string;
@@ -359,6 +383,23 @@ export interface Tts extends HybridObject<SpeechPlatforms> {
    * Pass `reference` for zero-shot voice cloning (Pocket / ZipVoice).
    */
   synthesize(text: string, speed?: number, reference?: TtsReference): Promise<TtsResult>;
+  /**
+   * Synthesize from pre-phonemized input (external G2P), bypassing the lexicon.
+   *
+   * This is the escape hatch for models whose language/lexicon coverage is
+   * incomplete: phonemize the text yourself (e.g. piper_phonemize) and pass the
+   * resulting Unicode codepoints. `phonemeCodepoints` holds one array per
+   * sentence; every sentence must be non-empty. When set, the text is ignored.
+   *
+   * Supported by VITS, Matcha, Kokoro, Kitten and ZipVoice. The Pocket model
+   * ignores phoneme codepoints, so this method rejects it instead of returning
+   * silence. Values must be finite integers in `[0, 0x10FFFF]`.
+   */
+  synthesizePhonemes(
+    phonemeCodepoints: number[][],
+    speed?: number,
+    reference?: TtsReference
+  ): Promise<TtsResult>;
   /**
    * Synthesize with a speaker reference.
    * `speakerId` is either a numeric model speaker index ("0", "1", ... for
@@ -418,6 +459,20 @@ export interface SpeakerManager extends HybridObject<SpeechPlatforms> {
   /** Compute an embedding from reference 16 kHz mono f32 PCM audio. */
   computeEmbedding(samples: ArrayBuffer): Promise<ArrayBuffer>;
   /**
+   * Embedding dimension of the loaded model (sherpa-onnx
+   * `SherpaOnnxSpeakerEmbeddingManagerDim`). Returns 0 when nothing is loaded.
+   */
+  dim(): number;
+  /**
+   * Stored embedding of an enrolled speaker as mono f32 bytes, the same layout
+   * `computeEmbedding` returns. Rejects when `id` is unknown.
+   *
+   * Backed by `SherpaOnnxSpeakerEmbeddingManagerGetEmbedding`; the native copy
+   * is released right after being handed to JS, so there is no separate
+   * `destroyEmbedding` to call — the returned `ArrayBuffer` owns the data.
+   */
+  getEmbedding(id: string): Promise<ArrayBuffer>;
+  /**
    * Register a speaker embedding for later TTS use.
    * Note: embedding-only records cannot drive zero-shot TTS; use
    * `registerSpeakerFromFile` when you need voice cloning with Pocket.
@@ -470,6 +525,12 @@ export interface SpeakerDiarizationConfig {
   minDurationOn?: number;
   /** Merge gaps shorter than this many seconds. Default: 0.5. */
   minDurationOff?: number;
+  /**
+   * Compute a per-segment confidence score (sherpa-onnx 2.0+). Default: true.
+   * Disable it to save a little clustering time; `DiarizationSegment.confidence`
+   * is then `undefined`.
+   */
+  computeConfidence?: boolean;
   numThreads?: number;
   debug?: boolean;
   provider?: string;
@@ -482,6 +543,12 @@ export interface DiarizationSegment {
   endMs: number;
   /** Speaker cluster index (0-based). */
   speaker: number;
+  /**
+   * Clustering confidence for this segment in [-1, 1] (higher is more
+   * confident). `undefined` when unavailable — `computeConfidence: false`, or
+   * the score could not be computed for this segment.
+   */
+  confidence?: number;
 }
 
 export interface DiarizationResult {

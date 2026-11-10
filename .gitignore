@@ -25,6 +25,8 @@ DerivedData
 # Android/IntelliJ
 #
 build/
+# Out-of-tree native build trees (build-macos, build-android-<abi>, ...)
+/build-*/
 .idea
 .gradle
 .kotlin

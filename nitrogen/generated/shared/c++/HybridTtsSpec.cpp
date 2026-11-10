@@ -17,6 +17,7 @@ namespace margelo::nitro::onnx::speech {
       prototype.registerHybridMethod("load", &HybridTtsSpec::load);
       prototype.registerHybridMethod("isLoaded", &HybridTtsSpec::isLoaded);
       prototype.registerHybridMethod("synthesize", &HybridTtsSpec::synthesize);
+      prototype.registerHybridMethod("synthesizePhonemes", &HybridTtsSpec::synthesizePhonemes);
       prototype.registerHybridMethod("synthesizeWithSpeaker", &HybridTtsSpec::synthesizeWithSpeaker);
       prototype.registerHybridMethod("saveWav", &HybridTtsSpec::saveWav);
       prototype.registerHybridMethod("unload", &HybridTtsSpec::unload);

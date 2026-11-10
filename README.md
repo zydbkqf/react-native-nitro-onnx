@@ -116,7 +116,7 @@ Key design decisions:
 | Model family | Type slug | Vocoder | Quality | Speed | Notes |
 |---|---|---|---|---|---|
 | Kokoro | `kokoro` | internal | High, multi-speaker | Medium | Needs `model.onnx`, `voices.bin`, `tokens.txt`, `lexicon.txt` |
-| VITS | `vits` | internal | High quality | Medium | Needs `model.onnx`, `tokens.txt`, optional lexicon |
+| VITS | `vits` | internal | High quality | Medium | Needs `model.onnx`, `tokens.txt`, `lexicon.txt` (required since sherpa-onnx 2.0) |
 | Matcha | `matcha` | external (e.g. Hifigan) | Fast, natural | Fast | Needs acoustic model + vocoder ONNX |
 | Pocket | `pocket` | internal | Lightweight zero-shot | Very fast | Multi-file (lm / encoder / decoder, see below). Voice-cloned from a reference audio prompt |
 | ZipVoice | `zipvoice` | internal | Dedicated encoder/decoder | Fast | Needs `zipvoiceEncoder`, `zipvoiceDecoder`, `vocoder` (separate `vocos_24khz.onnx`), tokens. Voice-cloned from a reference audio + transcript prompt |
@@ -251,9 +251,60 @@ zipvoice/
   decoder.onnx      → zipvoiceDecoder
   vocos_24khz.onnx  → vocoder (required; download separately from sherpa-onnx vocoder-models release)
   tokens.txt
-  lexicon.txt
-  espeak-ng-data/   (optional)
+  lexicon.txt       → lexicon (required: sherpa-onnx 2.0 no longer phonemizes with espeak-ng)
 ```
+
+### Lexicon coverage after sherpa-onnx 2.0
+
+sherpa-onnx 2.0 removed the bundled espeak-ng frontend, so a model can only pronounce words its `lexicon.txt` contains. **Check that the lexicon covers the language you intend to synthesize** — an incomplete lexicon does not fail loudly, it produces missing words or empty audio.
+
+Two failure modes are silent, which is why this needs checking up front:
+
+- **OOV word**: text is split into words, a word without a lexicon entry logs `OOV <word>. Ignore it!` and is skipped. If every word is missing, the result is an empty audio buffer.
+- **unknown phone**: a lexicon line whose phones are not all listed in `tokens.txt` is dropped as a whole (only `Unknown token` is logged), so the word behaves as OOV.
+
+Hard rules taken from `sherpa-onnx/csrc/lexicon.cc`:
+
+- one entry per line: `word phone phone ...` (spaces or tabs), the word is lowercased before lookup;
+- a word may appear only once — the first entry wins, later duplicates are ignored, so do not emit pronunciation variants;
+- the blank token (`" "`) cannot be used as a phone in a lexicon;
+- Chinese lexicons are keyed by single character, non-Chinese by whitespace-separated word.
+
+#### Audit an existing lexicon
+
+```bash
+python3 scripts/build-lexicon.py --tokens /path/to/tokens.txt --check /path/to/lexicon.txt
+```
+
+It reports entries that sherpa would drop, which phones are missing from `tokens.txt`, and which `tokens.txt` phones the lexicon never uses (a sign that words for your target language are absent). Exit code is non-zero when anything is wrong, so it works in CI.
+
+#### Fill the gaps (espeak-ng or CMUdict)
+
+```bash
+# IPA backends: espeak-ng (install it: brew install espeak-ng / apt install espeak-ng)
+python3 scripts/build-lexicon.py \
+  --tokens /path/to/tokens.txt \
+  --words words.txt \
+  --backend espeak --voice en-us \
+  --out lexicon.txt
+
+# ARPABET: CMUdict (download cmudict-0.7b first)
+python3 scripts/build-lexicon.py \
+  --tokens /path/to/tokens.txt \
+  --words words.txt \
+  --backend cmudict --cmudict cmudict-0.7b \
+  --out lexicon.txt
+```
+
+- `--words words.txt` (one word per line) or `--text text.txt` (free text, split on whitespace).
+- Pick the backend that matches your `tokens.txt`: piper-style models ship espeak IPA phones (use `--backend espeak`), while ARPABET models such as the classic LJSpeech VITS need `--backend cmudict`. Run `--check` on a lexicon produced by the model's own release to see which symbol set it uses.
+- CMUdict: `curl -O https://raw.githubusercontent.com/cmusphinx/cmudict/master/cmudict.dict` (same format as `cmudict-0.7b`, rename or pass it via `--cmudict`).
+- `--base-lexicon existing.txt` merges into an existing lexicon: words already present are kept, and their lines are validated before being carried over.
+- espeak-ng output is segmented into phones by longest match against `tokens.txt`, so multi-character phones such as `tʃ` work. Stress marks are stripped by default (`--keep-stress` keeps them, only if your tokens contain them).
+- `--report skipped.txt` records every skipped word with the reason, `--strict` turns any skip into a non-zero exit, `--dry-run` only counts.
+- Nothing is written unless every generated phone exists in `tokens.txt`, so the result always loads.
+
+If you would rather not maintain a lexicon at all, `Tts.synthesizePhonemes()` accepts pre-phonemized codepoints directly (see [Text to Speech](#text-to-speech)); that bypasses the lexicon entirely but needs your own G2P and is unsupported by the Pocket model.
 
 ### Silero VAD
 
@@ -290,6 +341,17 @@ await speaker.load({
   numThreads: 4,
 });
 ```
+
+### Speaker embedding dimension and stored vectors
+
+`dim()` reports the embedding dimension of the loaded model (`0` when nothing is loaded), and `getEmbedding(id)` returns the embedding stored for a registered speaker as an `ArrayBuffer` of mono **f32** floats — the same layout `computeEmbedding` returns:
+
+```typescript
+const dimension = speaker.dim();
+const embedding = await speaker.getEmbedding("alice"); // throws when "alice" is not registered
+```
+
+The native copy is released right after the call, so the returned `ArrayBuffer` is owned by JS and there is nothing to free manually.
 
 ### Speaker diarization (model files)
 
@@ -344,8 +406,140 @@ Build requirements:
 The sherpa-onnx prebuilt tree (host static libraries, Android shared libraries,
 iOS xcframework, and C API headers) is **vendored and committed under
 `thirdparty/sherpa-onnx`** and ships with the package, so no download happens at
-install, configure, or build time. To upgrade sherpa-onnx, replace the files
-under `thirdparty/sherpa-onnx` manually and commit the tree.
+install, configure, or build time. The vendored tree tracks **sherpa-onnx v2.0.1**
+(on Android it is paired with onnxruntime 1.28.2).
+
+Android ships two variants of `libsherpa-onnx-c-api.so` + `libonnxruntime.so`:
+
+| Directory | Variant |
+|---|---|
+| `thirdparty/sherpa-onnx/android/jniLibs/<abi>/` | plain onnxruntime (all ABIs) |
+| `thirdparty/sherpa-onnx/android/qnn/arm64-v8a/` | onnxruntime with the Qualcomm QNN execution provider |
+
+To rebuild both from source, run `scripts/build-android-libs.sh`. It clones
+sherpa-onnx v2.0.1 and onnxruntime 1.28.2 into `build/` (gitignored), builds
+them for all four ABIs (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`) and installs
+the results back into `thirdparty/`. Set `ABIS` to build a subset, and set
+`QNN_ROOT` for the QNN variant (arm64-v8a only).
+
+### QNN (Qualcomm NPU) on Android
+
+QNN is opt-in and arm64-v8a only:
+
+```properties
+# android/gradle.properties (or an environment variable of the same name)
+QNN_ROOT=/path/to/qairt        # QAIRT SDK root
+QNN_HTP_VERSIONS=73            # optional: comma-separated HTP versions, e.g. 73,75
+```
+
+With `QNN_ROOT` set, the build links the QNN-enabled prebuilts and packages the
+runtime libraries from the SDK, split by role:
+
+| Library | Payload | Ships in |
+| --- | --- | --- |
+| `libQnnHtp.so`, `libQnnHtpPrepare.so`, `libQnnSystem.so`, `libQnnCpu.so`, `libQnnHtpV<ver>Stub.so` | ARM aarch64 ELF | `lib/arm64-v8a/` (jniLibs) |
+| `libQnnHtpV<ver>Skel.so` | Hexagon DSP ELF (`e_machine QUALCOMM DSP6`) | `assets/qnn/` |
+
+The Stub is an ARM library and is loaded by the dynamic loader, so it belongs in
+jniLibs. The Skel does not: nothing on the ARM side can `dlopen` a DSP binary,
+and fastrpc only accepts a **real filesystem path** — it never reads a zip entry
+inside the APK. Since AGP 3.6+ packs native libraries uncompressed and maps them
+straight out of the APK (`extractNativeLibs=false` by default), a Skel placed in
+jniLibs has no path to hand to the DSP and would sit in the APK unused.
+
+So the Skel ships as an asset and is extracted at runtime:
+
+1. `OnnxSpeechPackage.ensureResources()` calls `extractQnnSkel()`, which copies
+   `assets/qnn/*Skel.so` into `<filesDir>/qnn` (skipped when an equal-sized copy
+   is already there) and prepends that directory to `ADSP_LIBRARY_PATH`.
+2. Only afterwards is a recogniser created, so `libQnnHtp.so` is `dlopen`ed with
+   the DSP search path already in place. `ADSP_LIBRARY_PATH` is read when the
+   backend loads its Skel and only takes effect once per process, which is why
+   extraction happens at startup instead of lazily.
+
+The other half of the fastrpc bridge is a manifest declaration. `libQnnHtp.so`
+only lists `libc/libm/libdl/liblog` as `DT_NEEDED` — it `dlopen`s the vendor
+library `libcdsprpc.so` at runtime. Android 11+ hides vendor libraries from apps
+unless they are declared, and without that entry `qnn_interface.deviceCreate()`
+fails with error **14001** even though every QNN user-space library is packaged.
+The module manifest ships it:
+
+```xml
+<uses-native-library android:name="libcdsprpc.so" android:required="false" />
+```
+
+`required="false"` is what keeps this harmless: on devices that do not ship the
+library (MediaTek platforms, for example) the app still installs and runs, the
+QNN path is simply never taken — no manifest error, no install filter, no crash.
+It is declared unconditionally rather than only when `QNN_ROOT` is set because an
+Android library manifest has no conditional-entry mechanism (the only alternatives
+are generated manifests or per-flavour manifest dirs, both of which force the
+consuming app to match flavours), and the declaration costs nothing when unused.
+If your app already declares it, the merged manifest carries two identical
+entries — AGP accepts that and the duplicate has no runtime effect, so there is
+nothing to clean up.
+
+Per-version pairs are still controlled by `QNN_HTP_VERSIONS`; when omitted, every
+Stub/Skel found in the SDK is packaged. These libraries are `dlopen`ed at
+runtime, never linked, and are not part of the npm package (Qualcomm's license
+does not permit redistribution).
+
+Size matters here: a Stub is ~0.6 MB but a Skel is ~9–10 MB, and Skel now counts
+against the asset payload rather than jniLibs. Packaging all six versions found
+in a stock SDK adds ~56 MB of assets on top of the ~71 MB `libQnnHtpPrepare.so`.
+Pin the versions you actually target:
+
+```properties
+QNN_HTP_VERSIONS=79        # e.g. only the HTP arch of the shipping devices
+```
+
+`copyQnnJniLibs` / `copyQnnSkelAssets` fail the build when a pinned version is
+missing from the SDK (or when `QNN_ROOT` holds no matching Skel at all), so a
+mistyped version can no longer produce an APK that is silently missing its
+Stub/Skel pair. To find the version a device needs, run once with the full set
+and check logcat for the loaded `libQnnHtpV<ver>Skel.so`.
+
+QNN HTP models must be quantized with static shapes; the regular float `.onnx`
+files cannot run on the HTP backend.
+
+#### NPU acceleration can be slower than CPU — measure first
+
+Do not assume QNN, NNAPI or CoreML is faster than the CPU provider. In a streaming
+transducer the joiner runs once per frame — a 480 ms chunk with 10 ms frames is
+~1800 calls for 18 s of audio — and every call pays a fixed cross-device cost
+(FastRPC / dispatch, typically 4–7 ms per invocation on HTP). That fixed cost
+easily exceeds the compute it saves, so a whole-model `provider: "qnn"` setup can
+end up slower than plain CPU.
+
+A large encoder is not automatically a win either: at batch=1 there is no
+batching to amortise launch overhead, so the DSP stays underutilised. On a
+325 MB encoder measured for this module, HTP took ~50 ms per call against ~30 ms
+on CPU.
+
+The same holds for NNAPI: on an SM6435 / Android 16 device the streaming int8
+zipformer took **12.4 s on `cpu`** and **51.7 s on `nnapi`** for one end-to-end
+pass — 4× slower. CoreML on iOS has the same failure mode (partitioned graph,
+ANESharedEvents and per-call copies), so treat it as unverified until measured.
+
+Before shipping an NPU backend, take a CPU baseline:
+
+1. Pass `provider: "cpu"` explicitly (it is also the default, but be explicit so
+   the result is unambiguous).
+2. Same audio, same models, same decoding options; record wall-clock time **and**
+   the transcript — quantized QNN context binaries are often faster but less
+   accurate, and both effects ship together.
+3. Break the time down per component (encoder / decoder / joiner call count and
+   per-call latency). If `joiner calls × 4–7 ms` dominates the total, whole-model
+   offload is the wrong choice; consider encoder-only offload, and only if the
+   encoder's NPU per-call latency really beats CPU.
+4. Warm up before timing: the first `provider: "qnn"` creation loads
+   `libQnnHtpPrepare.so` and prepares the HTP graphs, which adds noticeable
+   start-up time that must not be averaged into steady-state latency.
+5. Keep the verdict in the app — make the provider an explicit constant with the
+   measured numbers and the date in a comment, so nobody re-runs the same
+   experiment later.
+
+### Git LFS
 
 Binary artifacts (Android `*.so`, the iOS xcframework Mach-O) are tracked with
 **Git LFS**; install [`git-lfs`](https://git-lfs.com) before cloning so the
@@ -448,6 +642,12 @@ const audio = await tts.synthesize("Hello, this is a test.", 0.9);
 
 // Save to WAV file
 await tts.saveWav(audio, "/path/to/output.wav");
+
+// External G2P: sherpa-onnx >= 2.0 no longer phonemizes with espeak-ng, so a
+// lexicon-only model needs pre-phonemized input. Each array is one sentence;
+// values are the Unicode codepoints of the phoneme characters (the `text`
+// argument is ignored on this path).
+// const audio2 = await tts.synthesizePhonemes([[104, 101, 108, 108, 111]], 0.9);
 ```
 
 > **Important:** The synthesized audio is **f32le PCM** (32-bit float, little-endian). When playing with `react-native-audio-api`, you must specify the correct `sampleRate` when creating the `AudioContext`:
@@ -678,23 +878,31 @@ ships `date.fst`, `phone.fst`, `number.fst`, `new_heteronym.fst`.
 
 ## Execution Providers
 
-By default, the module selects a platform-appropriate execution provider:
+The default provider is **`cpu` on every platform**. Accelerators are opt-in, because they are either unavailable on the device or slower than CPU for this workload — measure before enabling one:
 
-- **Android (no QNN SDK):** `nnapi` — NNAPI with CPU fallback.
-- **Android (built with `QNN_ROOT`):** `qnn` — Qualcomm HTP via QNN; unsupported operators fall back to CPU.
-- **iOS:** `coreml` — Apple Neural Engine via CoreML; unsupported operators fall back to CPU.
+- **`cpu`** (default) — ONNX Runtime CPU EP. Works on every device and every model.
+- **`nnapi`** — Android, arm64-v8a. Compiled into the default prebuilts, so nothing to enable at build time; see [NNAPI Support](#nnapi-support). Falls back to CPU for unsupported operators, and to CPU outright when the device has no NNAPI driver. Deprecated from Android 15 on, but the vendor HAL still exists and it is the only accelerator on MediaTek phones.
+- **`qnn`** — Android, arm64-v8a only, and only usable when the provider was built with `-DQNN_ROOT=...`. Qualcomm HTP; unsupported operators fall back to CPU. Never selected automatically.
+- **`coreml`** — iOS; Apple Neural Engine via CoreML, unsupported operators fall back to CPU.
 
-> ⚠️ **Models that do not support NNAPI / CoreML / QNN can throw at load or inference time.**
->
-> The CPU fallback only covers individual unsupported operators. If the whole model (or its op set) is incompatible with the NPU execution provider, `load()` or the first inference call may fail with an ONNX Runtime error instead of degrading gracefully. When that happens, **explicitly set `provider: "cpu"`** — there is no automatic retry on a different provider.
+> ⚠️ **Every accelerator here can be a pessimisation, not just NNAPI.** `qnn`, `nnapi` and `coreml` all partition the graph, and the cost of crossing a partition boundary (tensor copy + quant/dequant + per-step driver dispatch) can exceed what the accelerator saves — especially for a streaming transducer, where the joiner runs once per frame and the encoder re-runs on every chunk. A device that "supports" the EP says nothing about whether it wins for this model. Treat every EP as guilty until a benchmark on the actual device says otherwise; see [NPU acceleration can be slower than CPU](#npu-acceleration-can-be-slower-than-cpu--measure-first) for the measured numbers and the method.
 
-To disable NPU acceleration and force CPU-only inference, pass `provider: "cpu"` explicitly:
+| SoC | Starting point |
+| --- | --- |
+| Apple A-series / M-series (iOS) | `cpu`; try `coreml` and benchmark against it |
+| Qualcomm Snapdragon 8-series | `cpu`; try `qnn` (`-DQNN_ROOT=...` at build time) and benchmark against it |
+| MediaTek Dimensity and other vendors with an NNAPI driver | `cpu`; try `nnapi` (ships in the arm64-v8a prebuilts) and benchmark against it |
+| Anything else, or a model the EP rejects | `cpu` |
+
+> ⚠️ **Accelerators are the risky half of `load()`.** When ONNX Runtime cannot initialise the execution provider (an NPU that rejects the whole graph, a vendor driver that is present but unusable), `load()` retries the model **once on `cpu`** and logs the downgrade, so the engine still comes up. What is *not* covered is the first *inference* call failing after a successful load — NPU partitioning happens lazily for some models. If you see that, explicitly set `provider: "cpu"`.
+
+To use an accelerator, opt in explicitly:
 
 ```typescript
 await asr.load({
   type: "whisper",
   // ... other config
-  provider: "cpu",
+  provider: "qnn", // or "nnapi" (Android, NNAPI build) / "coreml" (iOS)
 });
 ```
 
@@ -712,8 +920,9 @@ const soc = speech.getQualcommSoc();
 
 if (soc) {
   console.log(`Qualcomm SoC: ${soc}`);
-  // Use QNN when the app was built with -DQNN_ROOT=...; otherwise NNAPI.
-  await asr.load({ type: "whisper", /* ... */ });
+  // "qnn" only works when the app was built with -DQNN_ROOT=...; otherwise
+  // stay on the default CPU provider, or use "nnapi" in an NNAPI build.
+  await asr.load({ type: "whisper", /* ... */ provider: "qnn" });
 } else {
   await asr.load({ type: "whisper", /* ... */ provider: "cpu" });
 }
@@ -721,9 +930,47 @@ if (soc) {
 
 > **Note:** `getQualcommSoc()` returns `""` on iOS.
 
+### NNAPI Support
+
+NNAPI is compiled into the **arm64-v8a** prebuilts by default — there is no build flag to turn it on or a separate module variant to install. It is useful when the device has no QNN SDK path — most notably MediaTek Dimensity, where NeuroPilot exposes only the NNAPI driver to apps, and there is no publicly distributable ONNX Runtime EP.
+
+What that means in practice:
+
+- `arm64-v8a` ships `libonnxruntime.so` built with `--use_nnapi` at **API 27**, plus a matching `libsherpa-onnx-c-api.so` compiled with `__ANDROID_API__ >= 27`. 32-bit ABIs stay at API 21 with the CPU EP only.
+- `provider: "nnapi"` reaches the vendor NNAPI driver instead of logging `Android NNAPI requires API level >= 27. Current API level ... Fallback to cpu!`.
+
+> ⚠️ **QNN and NNAPI cannot live in the same `libonnxruntime.so`.** The two static providers both define the shared attribute helpers: the QNN provider `#include`s `onnxruntime/core/providers/shared/utils/utils.cc` into its own `qnn/ort_api.cc.o`, while the NNAPI provider compiles `utils.cc` as a separate object. Enabling both at once links cleanly right up to 74 %, then fails with
+>
+> ```
+> ld.lld: error: duplicate symbol: onnxruntime::NodeAttrHelper::NodeAttrHelper(onnxruntime::Node const&)
+> >>> defined at ort_api.cc.o in archive libonnxruntime_providers_qnn.a
+> >>> defined at utils.cc.o in archive libonnxruntime_providers_nnapi.a
+> ```
+>
+> This is why there are two Android variants instead of one: `android/jniLibs/arm64-v8a` is **CPU + NNAPI** and `android/qnn/arm64-v8a` is **CPU + QNN**. Pick the one matching the target SoC; a build cannot serve both. Making it work would require either patching ORT's `qnn/ort_api.cc` to stop inlining `utils.cc`, or building the QNN EP as a `shared_lib` provider so the symbols stop colliding at link time — neither is done here.
+
+> ⚠️ **Loader floor: API 24.** ONNX Runtime reaches NNAPI through `dlopen("libneuralnetworks.so")`, so there is **no** hard `DT_NEEDED` dependency and the library is not rejected just because NNAPI is missing. But the API-27 toolchain pulls in libc symbols introduced at API 24 (measured: `__write_chk` in `libonnxruntime.so`, `__register_atfork` / `__cxa_thread_atexit_impl` in `libsherpa-onnx-c-api.so`). On an API 21–23 device the loader therefore fails on the whole library, and **every** provider — including `cpu` — breaks. This is why the Gradle build refuses `minSdk` below 24; React Native 0.76+ already requires 24, so it costs nothing in practice.
+
+> ℹ️ **Runtime fallback.** `provider: "nnapi"` is downgraded to `"cpu"` before the model loads when `dlopen("libneuralnetworks.so")` fails — device below API 27, a vendor without an NNAPI driver, or a future Android release that drops the library. `provider: "qnn"` likewise downgrades (`qnn` → `nnapi` → `cpu`) when `libcdsprpc.so` is missing, which rules out every non-Qualcomm SoC. When the library exists but session creation still fails, `load()` retries once on `cpu`. Each downgrade prints one stderr line instead of failing.
+
+> ⚠️ **NNAPI is deprecated from Android 15 and often slower than CPU.** The NDK API is deprecated, but the Neural Networks HAL is still supported and `libneuralnetworks.so` remains on the device, so the path keeps working. Get your own number before shipping it: measured on an SM6435 / Android 16 device with the streaming zipformer int8 model, one full pass took **12.4 s on `cpu` and 51.7 s on `nnapi`**. That total includes NNAPI compiling the partitioned subgraphs when the session is created (the driver only caches compilation from API 29 up, and caching is not guaranteed to be on), so it is not purely per-frame time — but it is exactly the latency a user feels on first load. Benchmark cold load and steady state separately, and fall back to `cpu` when either loses.
+
+Rebuilding the Android libraries from sources:
+
+```bash
+cd /path/to/react-native-nitro-onnx
+# all CPU/NNAPI prebuilts (arm64-v8a gets NNAPI)
+SKIP_QNN=1 ./scripts/build-android-libs.sh
+
+# CPU + QNN for arm64-v8a (NNAPI cannot be added to this one, see above)
+SKIP_PLAIN=1 QNN_ROOT=/path/to/qairt ./scripts/build-android-libs.sh
+```
+
+The artifacts land in `thirdparty/sherpa-onnx/android/jniLibs/<abi>/` and `thirdparty/sherpa-onnx/android/qnn/arm64-v8a/` (`libsherpa-onnx-c-api.so`, `libsherpa-onnx-cxx-api.so`, `libonnxruntime.so`).
+
 ### Building with QNN Support
 
-QNN is **opt-in**. Without `QNN_ROOT`, Android builds do not define `SHERPA_ONNX_ENABLE_QNN`, the default provider is `nnapi`, and no QNN runtime libraries are linked.
+QNN is **opt-in**. Without `QNN_ROOT`, Android builds do not define `SHERPA_ONNX_ENABLE_QNN`, the default provider is `cpu`, and no QNN runtime libraries are linked.
 
 `QNN_ROOT` is required to enable the QNN execution provider and bundle QNN Binary backend libraries from the Qualcomm AI Runtime (QAIRT) SDK.
 
@@ -741,9 +988,103 @@ QNN_ROOT=/path/to/qnn/sdk ./gradlew assembleRelease
 QNN_ROOT=/path/to/qnn/sdk
 ```
 
-When `QNN_ROOT` is set, the build defines `SHERPA_ONNX_ENABLE_QNN` (so the default provider becomes `qnn`) and links the QNN core library (`QnnHtp`) plus all available HTP version libraries (`QnnHtpV73Stub`/`HtpV73`, `QnnHtpV75Stub`/`HtpV75`, etc.) from the SDK.
+When `QNN_ROOT` is set, the build defines `SHERPA_ONNX_ENABLE_QNN` — which compiles sherpa-onnx's own QNN backend (`csrc/qnn/*`, its direct QNN model classes rather than an ONNX Runtime EP) and builds ONNX Runtime with `--use_qnn`; the default provider stays `cpu`, and you must pass `provider: "qnn"` to use it — and copies the QNN runtime libraries (`QnnHtp`, `QnnSystem`, `QnnCpu`, plus the `HtpV<ver>Stub` / `HtpV<ver>Skel` pair for each HTP version) out of the SDK — Stubs into jniLibs, Skels into assets, see [QNN (Qualcomm NPU) on Android](#qnn-qualcomm-npu-on-android).
 
-> **Note:** QNN support is Android-only. On iOS, CoreML is used by default.
+> ⚠️ **QNN can be slower than CPU too — benchmark before shipping it.** HTP only helps when the encoder is offloaded as one large subgraph and stays resident. A streaming transducer breaks both conditions: the encoder is re-run per chunk, the joiner runs once per frame (its dispatch cost dwarfs the arithmetic), and unsupported ops force partitions back to CPU with a tensor copy on each boundary. On top of that, HTP has no persistent graph between processes unless you feed it context binaries. So on an 8-series device, `provider: "qnn"` with plain `.onnx` models may lose to `cpu` even though the hardware is idle — the same caveat applies to `nnapi` and `coreml`. Measure `cpu` first, then the EP, on the same audio and the same model.
+
+QNN is configured per model via `AsrModelConfig`:
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `qnnBackendLib` | soname `libQnnHtp.so` | QNN HTP backend to load |
+| `qnnSystemLib` | soname `libQnnSystem.so` | `libQnnSystem.so`; required when context binaries are used |
+
+There is no separate field for context binaries: set `encoder`, `decoder` and
+`joiner` to `*.bin` files and they are passed to sherpa in that order, see
+[QNN context binaries](#qnn-context-binaries).
+
+Empty values cover the common case: the libraries copied from `QNN_ROOT` are
+resolvable by soname from the app's native library dir. Note that `provider: "qnn"`
+rejects plain float `.onnx` files — QNN needs pre-compiled artifacts (`*.so`
+encoder/decoder/joiner or a `.bin` context binary).
+
+### QNN SDK version compatibility
+
+The QNN prebuilts (`libonnxruntime.so` with the QNN EP, and the QNN variant of
+`libsherpa-onnx-c-api.so`) are compiled against **QNN API 2.30.0**, which is what
+qairt **2.40.0** exposes:
+
+```
+qairt/sdk.yaml           version: 2.40.0     build_id: 251030114326_189385
+qairt/include/QNN/QnnCommon.h   QNN_API_VERSION_MAJOR/MINOR/PATCH = 2 / 30 / 0
+```
+
+The SDK version (`2.40.0`) and the interface API version (`2.30.0`) are different
+numbering schemes, and `sdk.yaml`'s `qnn_backend_api_version` is a third one —
+only `QnnCommon.h` decides compatibility.
+
+A SDK whose `QNN_API_VERSION_MINOR` is below **30** is not supported:
+
+- onnxruntime negotiates the version (`GetQnnInterfaceProvider` in
+  `qnn_backend_manager.cc`): major must match, minor/patch must be at least the
+  compiled-in ones, otherwise it fails with `Unable to find a valid interface for ...`.
+- sherpa-onnx (`csrc/qnn/qnn-backend.cc`) takes the first provider's interface
+  function table **without any version check**. An older SDK means a shorter table,
+  so calls run past its end — a crash or a call into an unrelated function, not a
+  clean error. This is the path used by the streaming QNN ZIP-Former transducer,
+  which talks to `libQnnHtp.so` directly instead of going through ONNX Runtime.
+
+The Android build fails fast instead: `copyQnnJniLibs` reads
+`$QNN_ROOT/include/QNN/QnnCommon.h` and throws when `QNN_API_VERSION_MINOR`
+(override the floor with `-PQNN_MIN_API_MINOR=<n>` if you rebuild the prebuilts
+against a newer SDK). A newer SDK (minor ≥ 30) is accepted by both sides, since
+the interface table only grows, but it is still worth a device smoke test.
+
+Everything from the QNN runtime must come from **one** SDK: `libQnnHtp.so`,
+`libQnnHtpPrepare.so`, `libQnnSystem.so`, `libQnnCpu.so`, the
+`libQnnHtpV<ver>Stub.so` and its matching `Skel.so`. The Gradle tasks copy all of
+them from a single `QNN_ROOT`, so this holds as long as nothing is mixed in by
+hand. Context binaries (`*.bin`) are stricter still — they are bound to both the
+generating SDK and the HTP architecture.
+
+### QNN context binaries
+
+A streaming transducer may instead ship as three pre-compiled HTP graphs. sherpa
+requires **exactly three** context binaries and maps them **positionally** to
+encoder, decoder and joiner. There is no separate field for them — point the three
+model fields at the `.bin` files:
+
+```ts
+await asr.load({
+  type: "zipformer",
+  modelDir: "/sdcard/Download/zipformer-qnn",
+  tokensPath: "tokens.txt",
+  encoder: "encoder.bin",
+  decoder: "decoder.bin",
+  joiner: "joiner.bin",
+  provider: "qnn",
+});
+```
+
+- The module joins `encoder`, `decoder`, `joiner` (in that order) into sherpa's
+  comma-separated context binary list, but only when **all three** end in `.bin`.
+  A partial set is rejected by sherpa, which is why the rule is all-or-nothing:
+  mixed `.bin` / `.so` leaves the list empty and the `.bin` entry then has no
+  usable model lib.
+- Relative paths are resolved against `modelDir`; absolute paths are used as is.
+  Bare sonames such as `libQnnHtp.so` are deliberately **not** joined — they are
+  looked up by the dynamic loader.
+- Once the three binaries exist they are loaded directly, and `encoder` /
+  `decoder` / `joiner` are no longer opened as model libs.
+- `qnnSystemLib` is mandatory in this mode; it defaults to the bundled
+  `libQnnSystem.so`.
+- If a listed binary is missing, sherpa falls back to treating that slot as a
+  model lib (`*.so`) and regenerates the binary on first run.
+- The context binary is generated for one HTP architecture and QNN SDK version;
+  it has to match the runtime the app ships (`QNN_HTP_VERSIONS` + the QAIRT
+  version used to generate it).
+
+> **Note:** QNN support is Android-only. On iOS, `coreml` is available but opt-in; the default is `cpu` there too.
 
 ## VAD Pre-buffer
 
@@ -924,14 +1265,17 @@ await diarization.load({
   // threshold: 0.5,        // used only when numClusters is 0
   // minDurationOn: 0.3,    // seconds
   // minDurationOff: 0.5,   // seconds
+  // computeConfidence: true, // default; false leaves seg.confidence undefined
 });
 
 const result = await diarization.process(pcmBuffer);
 console.log("speakers:", result.numSpeakers);
 for (const seg of result.segments) {
-  console.log(seg.startMs, "→", seg.endMs, "speaker", seg.speaker);
+  console.log(seg.startMs, "→", seg.endMs, "speaker", seg.speaker, "confidence", seg.confidence);
 }
 ```
+
+`seg.confidence` is a clustering score in `[-1, 1]` (higher is more confident), or `undefined` when `computeConfidence` is off or sherpa-onnx could not score that segment. Diarization results are cached per configuration, so toggling `computeConfidence` rebuilds the engine instead of reusing the cached one.
 
 `getSampleRate()` returns the input sample rate the diarization model expects (commonly 16000 Hz).
 
