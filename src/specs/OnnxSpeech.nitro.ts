@@ -291,8 +291,10 @@ export interface TtsModelConfig {
   voices?: string;
   /**
    * @deprecated Ignored since sherpa-onnx 2.0, which no longer ships
-   * espeak-ng. TTS models now need a `lexicon` (Kokoro / Matcha / VITS /
-   * ZipVoice) or pre-phonemized tokens; passing this only logs a warning.
+   * espeak-ng. TTS models that phonemize from a lexicon (Kokoro / Matcha /
+   * ZipVoice) now need `lexicon`; VITS maps text through `tokens` only, so
+   * give it pre-phonemized codepoints when its token set is phoneme-based.
+   * Passing this only logs a warning.
    */
   espeakNgData?: string;
   /**

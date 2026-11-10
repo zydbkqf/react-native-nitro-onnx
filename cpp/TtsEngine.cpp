@@ -141,8 +141,9 @@ void TtsEngine::load(const TtsEngineConfig& config) {
       case TtsModelType::VITS: {
         const std::string& vitsModel = config_.model.empty() ? acoustic : model;
         if (lexicon.empty()) {
-          TTS_LOG("VITS: no lexicon. sherpa-onnx >= 2.0 no longer phonemizes with "
-                  "espeak-ng; pass TtsModelConfig.lexicon or expect empty output.");
+          TTS_LOG("VITS: no lexicon. sherpa-onnx >= 2.0 does not read a lexicon "
+                  "for VITS models (text is mapped through tokens.txt); only "
+                  "Kokoro / Matcha / ZipVoice phonemize from a lexicon.");
         }
         c.model.vits.model = vitsModel.c_str();
         c.model.vits.lexicon = lexicon.c_str();

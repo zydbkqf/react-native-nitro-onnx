@@ -116,7 +116,7 @@ Key design decisions:
 | Model family | Type slug | Vocoder | Quality | Speed | Notes |
 |---|---|---|---|---|---|
 | Kokoro | `kokoro` | internal | High, multi-speaker | Medium | Needs `model.onnx`, `voices.bin`, `tokens.txt`, `lexicon.txt` |
-| VITS | `vits` | internal | High quality | Medium | Needs `model.onnx`, `tokens.txt`, `lexicon.txt` (required since sherpa-onnx 2.0) |
+| VITS | `vits` | internal | High quality | Medium | Needs `model.onnx`, `tokens.txt`; `lexicon.txt` is accepted but optional (see below) |
 | Matcha | `matcha` | external (e.g. Hifigan) | Fast, natural | Fast | Needs acoustic model + vocoder ONNX |
 | Pocket | `pocket` | internal | Lightweight zero-shot | Very fast | Multi-file (lm / encoder / decoder, see below). Voice-cloned from a reference audio prompt |
 | ZipVoice | `zipvoice` | internal | Dedicated encoder/decoder | Fast | Needs `zipvoiceEncoder`, `zipvoiceDecoder`, `vocoder` (separate `vocos_24khz.onnx`), tokens. Voice-cloned from a reference audio + transcript prompt |
@@ -215,7 +215,7 @@ kokoro/
 vits/
   model.onnx
   tokens.txt
-  lexicon.txt   (optional)
+  lexicon.txt   (optional: parsed by the CLI for compatibility, but the VITS model does not read it — see "Lexicon coverage" below)
 ```
 
 ### Matcha (TTS)
@@ -256,7 +256,9 @@ zipvoice/
 
 ### Lexicon coverage after sherpa-onnx 2.0
 
-sherpa-onnx 2.0 removed the bundled espeak-ng frontend, so a model can only pronounce words its `lexicon.txt` contains. **Check that the lexicon covers the language you intend to synthesize** — an incomplete lexicon does not fail loudly, it produces missing words or empty audio.
+sherpa-onnx 2.0 removed the bundled espeak-ng frontend, so the models that phonemize through a lexicon — Kokoro, Matcha and ZipVoice — can only pronounce words their `lexicon.txt` contains. **Check that the lexicon covers the language you intend to synthesize** — an incomplete lexicon does not fail loudly, it produces missing words or empty audio.
+
+VITS is the exception: in sherpa-onnx 2.0.1 `vits-lexicon` is registered and existence-checked, but the VITS model never reads it (`OfflineTtsVitsModel` takes only `model`, and text-to-token mapping comes from `tokens.txt`). Passing `lexicon.txt` for a VITS model is therefore harmless but has no effect; only `model.onnx` and `tokens.txt` are actually consulted.
 
 Two failure modes are silent, which is why this needs checking up front:
 
