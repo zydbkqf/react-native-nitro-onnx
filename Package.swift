@@ -41,7 +41,8 @@ let package = Package(
       ],
       linkerSettings: [
         .linkedLibrary("c++"),
-        .linkedFramework("Accelerate")
+        .linkedFramework("Accelerate"),
+        .linkedFramework("CoreML")
       ]
     ),
     .binaryTarget(

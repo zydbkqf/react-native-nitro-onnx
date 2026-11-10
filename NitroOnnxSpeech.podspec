@@ -31,7 +31,10 @@ Pod::Spec.new do |s|
     "NitroOnnxSpeech_Resources" => ["assets/silero_vad.onnx"]
   }
 
-  s.framework = "Accelerate"
+  # CoreML is required by the CoreML execution provider compiled into
+  # libonnxruntime.a: MLModel / MLOptimizationHints are Objective-C symbols
+  # resolved from the CoreML framework at link time.
+  s.frameworks = "Accelerate", "CoreML"
 
   s.libraries = "c++"
 
