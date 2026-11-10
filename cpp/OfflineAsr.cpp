@@ -58,17 +58,12 @@ std::shared_ptr<Promise<void>> OfflineAsr::load(const AsrModelConfig& config) {
     native.ruleFsts = config.ruleFsts.value_or("");
     native.ruleFars = config.ruleFars.value_or("");
     native.debug = config.debug.value_or(false);
-#if defined(__ANDROID__)
-    // QNN (Qualcomm NPU) is opt-in only: compiling with -DQNN_ROOT makes the
-    // QNN execution provider available, but it is never the default because
-    // it only supports its own operator set. Pass provider: "qnn" explicitly
-    // to use it; the default stays nnapi.
-    native.provider = config.provider.value_or("nnapi");
-#elif defined(__APPLE__)
-    native.provider = config.provider.value_or("coreml");
-#else
+    native.qnnBackendLib = config.qnnBackendLib.value_or("");
+    native.qnnSystemLib = config.qnnSystemLib.value_or("");
+    // Accelerator providers are opt-in: "qnn" (built with -DQNN_ROOT),
+    // "nnapi" (built with the NNAPI variant), "coreml" (Apple). The default
+    // stays "cpu" — measure before enabling an accelerator.
     native.provider = config.provider.value_or("cpu");
-#endif
     self->engine_.load(native);
   });
 }

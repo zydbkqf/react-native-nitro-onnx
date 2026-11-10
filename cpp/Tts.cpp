@@ -8,6 +8,7 @@
 
 #include <NitroModules/ArrayBuffer.hpp>
 #include <bit>
+#include <cmath>
 #include <fstream>
 #include <stdexcept>
 
@@ -23,6 +24,28 @@ TtsResult toTtsResult(const TtsEngineResult& native) {
       ArrayBuffer::move(std::move(bytes)),
       static_cast<double>(native.sampleRate),
       native.durationMs);
+}
+
+/**
+ * Copy a JS reference clip into a plain struct. Must run on the JS thread:
+ * Promise::async executes on a background pool, and Nitro forbids synchronous
+ * size()/data() access to an ArrayBuffer held inside a hybrid struct there.
+ */
+std::optional<TtsReferenceAudio> toNativeReference(const std::optional<TtsReference>& reference) {
+  if (!reference.has_value()) {
+    return std::nullopt;
+  }
+  const TtsReference& ref = reference.value();
+  if (ref.samples == nullptr || ref.samples->size() == 0) {
+    throw std::invalid_argument("reference.samples must not be empty");
+  }
+  TtsReferenceAudio audio;
+  audio.samples = bytesToFloatVector(ref.samples->data(), ref.samples->size());
+  audio.sampleRate = ref.sampleRate.has_value() && ref.sampleRate.value() > 0
+                         ? static_cast<int32_t>(ref.sampleRate.value())
+                         : 16000;
+  audio.text = ref.text.value_or("");
+  return audio;
 }
 
 }  // namespace
@@ -63,11 +86,8 @@ std::shared_ptr<Promise<void>> Tts::load(const TtsModelConfig& config) {
     native.ruleFsts = config.ruleFsts.value_or("");
     native.ruleFars = config.ruleFars.value_or("");
     native.debug = config.debug.value_or(false);
-#ifdef __APPLE__
-    native.provider = config.provider.value_or("coreml");
-#else
+    // "coreml"/"qnn"/"nnapi" are opt-in; the default stays "cpu".
     native.provider = config.provider.value_or("cpu");
-#endif
     self->engine_.load(native);
   });
 }
@@ -84,20 +104,7 @@ std::shared_ptr<Promise<TtsResult>> Tts::synthesize(
   // background pool, and Nitro forbids synchronous size()/data() access to an
   // ArrayBuffer held inside a hybrid struct off the JS thread (unlike a
   // direct method arg). Only the copied vector reaches the async body.
-  std::optional<TtsReferenceAudio> nativeRef;
-  if (reference.has_value()) {
-    const TtsReference& ref = reference.value();
-    if (ref.samples == nullptr || ref.samples->size() == 0) {
-      throw std::invalid_argument("reference.samples must not be empty");
-    }
-    TtsReferenceAudio audio;
-    audio.samples = bytesToFloatVector(ref.samples->data(), ref.samples->size());
-    audio.sampleRate = ref.sampleRate.has_value() && ref.sampleRate.value() > 0
-                           ? static_cast<int32_t>(ref.sampleRate.value())
-                           : 16000;
-    audio.text = ref.text.value_or("");
-    nativeRef = std::move(audio);
-  }
+  auto nativeRef = toNativeReference(reference);
 
   return Promise<TtsResult>::async(
       [self = shared_cast<Tts>(), text, speed, nativeRef = std::move(nativeRef)]() {
@@ -107,6 +114,43 @@ std::shared_ptr<Promise<TtsResult>> Tts::synthesize(
         float spd = speed.has_value() ? static_cast<float>(speed.value()) : -1.0f;
         return toTtsResult(self->engine_.synthesize(
             text, -1, spd, nativeRef.has_value() ? &nativeRef.value() : nullptr));
+      });
+}
+
+std::shared_ptr<Promise<TtsResult>> Tts::synthesizePhonemes(
+    const std::vector<std::vector<double>>& phonemeCodepoints,
+    std::optional<double> speed,
+    const std::optional<TtsReference>& reference) {
+  if (phonemeCodepoints.empty()) {
+    throw std::invalid_argument("phonemeCodepoints must not be empty");
+  }
+  std::vector<std::vector<int32_t>> codepoints;
+  codepoints.reserve(phonemeCodepoints.size());
+  for (const auto& sentence : phonemeCodepoints) {
+    if (sentence.empty()) {
+      throw std::invalid_argument("every phonemeCodepoints sentence must be non-empty");
+    }
+    std::vector<int32_t> converted;
+    converted.reserve(sentence.size());
+    for (double codepoint : sentence) {
+      // NaN/Inf would make static_cast<int32_t> undefined behaviour, so reject
+      // anything that is not a finite codepoint in range.
+      if (!std::isfinite(codepoint) || codepoint < 0.0 || codepoint > 0x10FFFF) {
+        throw std::invalid_argument("phonemeCodepoints values must be Unicode codepoints (0..0x10FFFF)");
+      }
+      converted.push_back(static_cast<int32_t>(codepoint));
+    }
+    codepoints.push_back(std::move(converted));
+  }
+
+  auto nativeRef = toNativeReference(reference);
+
+  return Promise<TtsResult>::async(
+      [self = shared_cast<Tts>(), codepoints = std::move(codepoints), speed,
+       nativeRef = std::move(nativeRef)]() {
+        float spd = speed.has_value() ? static_cast<float>(speed.value()) : -1.0f;
+        return toTtsResult(self->engine_.synthesize(
+            "", -1, spd, nativeRef.has_value() ? &nativeRef.value() : nullptr, &codepoints));
       });
 }
 

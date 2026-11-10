@@ -13,10 +13,16 @@ DiarizationResult toDiarizationResult(const SpeakerDiarizationEngineResult& nati
   std::vector<DiarizationSegment> segments;
   segments.reserve(native.segments.size());
   for (const auto& s : native.segments) {
+    // The C API reports -2 for "confidence unavailable"; surface that as undefined.
+    std::optional<double> confidence;
+    if (s.confidence > -1.5f) {
+      confidence = static_cast<double>(s.confidence);
+    }
     segments.emplace_back(
         static_cast<double>(s.startMs),
         static_cast<double>(s.endMs),
-        static_cast<double>(s.speaker));
+        static_cast<double>(s.speaker),
+        confidence);
   }
   return DiarizationResult(static_cast<double>(native.numSpeakers), std::move(segments));
 }
@@ -39,6 +45,7 @@ std::shared_ptr<Promise<void>> SpeakerDiarization::load(const SpeakerDiarization
     native.threshold = static_cast<float>(config.threshold.value_or(0.5));
     native.minDurationOn = static_cast<float>(config.minDurationOn.value_or(0.3));
     native.minDurationOff = static_cast<float>(config.minDurationOff.value_or(0.5));
+    native.computeConfidence = config.computeConfidence.value_or(true);
     native.numThreads = static_cast<int32_t>(config.numThreads.value_or(1));
     native.debug = config.debug.value_or(false);
     native.provider = config.provider.value_or("cpu");

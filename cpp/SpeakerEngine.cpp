@@ -266,6 +266,38 @@ std::vector<SpeakerEngineMatch> SpeakerEngine::getBestMatches(
   return result;
 }
 
+int32_t SpeakerEngine::embeddingDim() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  ensureManagerLocked();
+  if (manager_ != nullptr) {
+    return SherpaOnnxSpeakerEmbeddingManagerDim(manager_.get());
+  }
+  if (extractor_ != nullptr) {
+    return SherpaOnnxSpeakerEmbeddingExtractorDim(extractor_.get());
+  }
+  return 0;
+}
+
+std::vector<float> SpeakerEngine::getEmbedding(const std::string& id) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  ensureManagerLocked();
+  if (manager_ == nullptr) {
+    // Distinguish "engine not loaded" from "speaker unknown" so callers do not
+    // chase a phantom registration problem.
+    throw std::runtime_error("Speaker extractor not loaded");
+  }
+  const float* raw = SherpaOnnxSpeakerEmbeddingManagerGetEmbedding(manager_.get(), id.c_str());
+  if (raw == nullptr) {
+    return {};
+  }
+  const int32_t dim = SherpaOnnxSpeakerEmbeddingManagerDim(manager_.get());
+  std::vector<float> result(raw, raw + dim);
+  // c-api hands back a freshly allocated copy; release it here so callers never
+  // have to know about DestroyEmbedding().
+  SherpaOnnxSpeakerEmbeddingManagerDestroyEmbedding(raw);
+  return result;
+}
+
 void SpeakerEngine::rebuildManagerLocked() {
   manager_.reset();
   if (extractor_ == nullptr) {

@@ -28,6 +28,10 @@ class Tts : public HybridTtsSpec {
       const std::string& text,
       std::optional<double> speed,
       const std::optional<TtsReference>& reference) override;
+  std::shared_ptr<Promise<TtsResult>> synthesizePhonemes(
+      const std::vector<std::vector<double>>& phonemeCodepoints,
+      std::optional<double> speed,
+      const std::optional<TtsReference>& reference) override;
   std::shared_ptr<Promise<TtsResult>> synthesizeWithSpeaker(
       const std::string& text,
       const std::string& speakerId,

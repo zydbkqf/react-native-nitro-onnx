@@ -60,6 +60,7 @@ void SpeakerDiarizationEngine::load(const SpeakerDiarizationEngineConfig& config
 
     c.clustering.num_clusters = config_.numClusters;
     c.clustering.threshold = config_.threshold;
+    c.clustering.compute_confidence = config_.computeConfidence ? 1 : 0;
     c.min_duration_on = config_.minDurationOn;
     c.min_duration_off = config_.minDurationOff;
 
@@ -114,6 +115,7 @@ SpeakerDiarizationEngineResult SpeakerDiarizationEngine::process(const std::vect
     seg.startMs = segments[i].start * 1000.0f;
     seg.endMs = segments[i].end * 1000.0f;
     seg.speaker = segments[i].speaker;
+    seg.confidence = segments[i].confidence;
     result.segments.push_back(seg);
   }
   SherpaOnnxOfflineSpeakerDiarizationDestroySegment(segments);

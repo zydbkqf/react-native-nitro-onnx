@@ -4,6 +4,7 @@
 #include "AsrEngine.hpp"
 
 #include "AudioFileReader.hpp"
+#include "ProviderSupport.hpp"
 #include "sherpa-onnx/c-api/c-api.h"
 
 #include <cmath>
@@ -125,11 +126,88 @@ AsrEngineResult fromOnlineResult(const SherpaOnnxOnlineRecognizerResult& r) {
 
 }  // namespace
 
+namespace {
+
+/**
+ * QNN settings in the C API live at model-config level while sherpa keeps a
+ * QnnConfig per concrete model type, so they are resolved once here and copied
+ * into every config we build. The strings must outlive the Create* call, hence
+ * they are materialised in the caller's scope.
+ */
+struct QnnFields {
+  std::string backend;
+  std::string context;
+  std::string system;
+};
+
+/** True when `value` ends with `suffix` (case sensitive, like sherpa's EndsWith). */
+bool endsWith(const std::string& value, const std::string& suffix) {
+  return value.size() >= suffix.size() &&
+         value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+/**
+ * Resolves a QNN file path the same way model files are resolved. Bare sonames
+ * such as "libQnnHtp.so" are left untouched: they are looked up by the dynamic
+ * loader, not by the filesystem, so they must not be joined to modelDir.
+ */
+std::string resolveQnnPath(const std::string& modelDir, const std::string& value) {
+  if (value.empty() || value[0] == '/') {
+    return value;
+  }
+  if (value.find('/') == std::string::npos && value.compare(0, 3, "lib") == 0 &&
+      endsWith(value, ".so")) {
+    return value;
+  }
+  return joinPath(modelDir, value);
+}
+
+QnnFields makeQnnFields(const AsrEngineConfig& config) {
+  QnnFields out;
+  if (config.provider != "qnn") {
+    return out;
+  }
+  out.backend = config.qnnBackendLib.empty() ? "libQnnHtp.so"
+                                             : resolveQnnPath(config.modelDir, config.qnnBackendLib);
+  out.system = config.qnnSystemLib.empty() ? "libQnnSystem.so"
+                                           : resolveQnnPath(config.modelDir, config.qnnSystemLib);
+
+  // sherpa takes the context binary list as exactly three comma-separated
+  // entries mapped positionally to encoder, decoder and joiner, so derive it
+  // from those fields instead of asking the caller for a fourth string. Only a
+  // full set of *.bin files selects that mode; anything else (e.g. the *.so
+  // model libs) must leave the list empty, because a partial list is rejected.
+  const auto& enc = config.encoder;
+  const auto& dec = config.decoder;
+  const auto& join = config.joiner;
+  if (endsWith(enc, ".bin") && endsWith(dec, ".bin") && endsWith(join, ".bin")) {
+    out.context = resolveQnnPath(config.modelDir, enc) + "," +
+                  resolveQnnPath(config.modelDir, dec) + "," +
+                  resolveQnnPath(config.modelDir, join);
+  }
+  return out;
+}
+
+void applyQnnFields(SherpaOnnxOnlineModelConfig* m, const QnnFields& f) {
+  m->qnn_backend_lib = f.backend.c_str();
+  m->qnn_context_binary = f.context.c_str();
+  m->qnn_system_lib = f.system.c_str();
+}
+
+void applyQnnFields(SherpaOnnxOfflineModelConfig* m, const QnnFields& f) {
+  m->qnn_backend_lib = f.backend.c_str();
+  m->qnn_context_binary = f.context.c_str();
+  m->qnn_system_lib = f.system.c_str();
+}
+
+}  // namespace
+
 std::string AsrEngineConfig::cacheSignature() const {
   return modelDir + "|" + std::to_string(static_cast<int>(type)) + "|" + provider + "|" +
          std::to_string(numThreads) + "|" + language + "|" + decodingMethod + "|" +
          std::to_string(maxActivePaths) + "|" + (useItn ? "1" : "0") + "|" + hotwordsFile + "|" +
-         hotwordsBuf + "|" + std::to_string(hotwordsScore) + "|" + ruleFsts + "|" + ruleFars;
+         hotwordsBuf + "|" + std::to_string(hotwordsScore) + "|" + ruleFsts + "|" + ruleFars + "|" +
+         qnnBackendLib + "|" + qnnSystemLib + "|" + encoder + "|" + decoder + "|" + joiner;
 }
 
 // ------------------------------------------------------------------------------
@@ -145,6 +223,7 @@ void OfflineAsrEngine::load(const AsrEngineConfig& config) {
   unload();
   std::lock_guard<std::mutex> lock(mutex_);
   config_ = config;
+  config_.provider = nitro_onnx::resolveProvider(config_.provider);
 
   auto cached = gOfflineRecognizerCache.getOrCreate(config_.cacheSignature(), [this](const std::string&) {
     SherpaOnnxOfflineRecognizerConfig c;
@@ -223,6 +302,10 @@ void OfflineAsrEngine::load(const AsrEngineConfig& config) {
     c.decoding_method = config_.decodingMethod.c_str();
     c.max_active_paths = config_.maxActivePaths;
 
+    // QNN settings must stay alive until SherpaOnnxCreateOfflineRecognizer.
+    QnnFields qnn = makeQnnFields(config_);
+    applyQnnFields(&c.model_config, qnn);
+
     std::string hotwordsFile = joinPath(config_.modelDir, config_.hotwordsFile);
     // SherpaOnnxOfflineRecognizerConfig has no hotwords_buf — only hotwords_file.
     // Config-level hotwordsBuf is applied at stream creation instead.
@@ -242,6 +325,16 @@ void OfflineAsrEngine::load(const AsrEngineConfig& config) {
     }
 
     const SherpaOnnxOfflineRecognizer* rec = SherpaOnnxCreateOfflineRecognizer(&c);
+    if (rec == nullptr && config_.provider != "cpu") {
+      // ONNX Runtime throws when the EP cannot initialise (a vendor NNAPI driver
+      // that refuses this graph, a QNN HTP binary the device rejects); sherpa
+      // turns that into nullptr and never retries on another provider, so retry
+      // once on CPU instead of failing the load.
+      nitro_onnx::logProviderDowngrade(config_.provider, "cpu", "session creation failed on it");
+      config_.provider = "cpu";
+      c.model_config.provider = config_.provider.c_str();
+      rec = SherpaOnnxCreateOfflineRecognizer(&c);
+    }
     if (rec == nullptr) {
       throw std::runtime_error("Failed to create offline ASR recognizer");
     }
@@ -329,6 +422,7 @@ void StreamingAsrEngine::load(
   unload();
   std::lock_guard<std::mutex> lock(mutex_);
   config_ = config;
+  config_.provider = nitro_onnx::resolveProvider(config_.provider);
   listener_ = std::move(listener);
 
   const std::string key = config_.cacheSignature() + "|streaming";
@@ -361,6 +455,10 @@ void StreamingAsrEngine::load(
     c.max_active_paths = config_.maxActivePaths;
     c.enable_endpoint = 1;
 
+    // QNN settings must stay alive until SherpaOnnxCreateOnlineRecognizer.
+    QnnFields qnn = makeQnnFields(config_);
+    applyQnnFields(&c.model_config, qnn);
+
     std::string hotwordsFile = joinPath(config_.modelDir, config_.hotwordsFile);
     if (!config_.hotwordsBuf.empty()) {
       c.hotwords_buf = config_.hotwordsBuf.c_str();
@@ -381,6 +479,14 @@ void StreamingAsrEngine::load(
     }
 
     const SherpaOnnxOnlineRecognizer* rec = SherpaOnnxCreateOnlineRecognizer(&c);
+    if (rec == nullptr && config_.provider != "cpu") {
+      // Same reasoning as OfflineAsrEngine::load: an accelerator that fails
+      // inside ORT comes back as nullptr, so retry once on CPU.
+      nitro_onnx::logProviderDowngrade(config_.provider, "cpu", "session creation failed on it");
+      config_.provider = "cpu";
+      c.model_config.provider = config_.provider.c_str();
+      rec = SherpaOnnxCreateOnlineRecognizer(&c);
+    }
     if (rec == nullptr) {
       throw std::runtime_error("Failed to create streaming ASR recognizer");
     }

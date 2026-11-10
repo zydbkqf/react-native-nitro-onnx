@@ -32,16 +32,10 @@ struct KeywordSpotterEngineConfig {
   int32_t numTrailingBlanks = 1;
   int32_t numThreads = 1;
   bool debug = false;
-#if defined(__ANDROID__)
-  // QNN is opt-in (provider: "qnn"); it is never the default because it only
-  // supports its own operator set. Compiling with -DQNN_ROOT merely makes it
-  // available. Default stays nnapi on Android.
-  std::string provider = "nnapi";
-#elif defined(__APPLE__)
-  std::string provider = "coreml";
-#else
+  // Accelerator providers are opt-in: "qnn" (Android, built with -DQNN_ROOT),
+  // "nnapi" (Android, built with the NNAPI variant), "coreml" (Apple). The
+  // default stays "cpu".
   std::string provider = "cpu";
-#endif
 
   std::string cacheSignature() const {
     return modelDir + "|kws|" + tokensPath + "|" + encoder + "|" + decoder + "|" + joiner + "|" +

@@ -25,6 +25,10 @@ class SpeakerManager : public HybridSpeakerManagerSpec {
   bool isLoaded() override;
   std::shared_ptr<Promise<std::shared_ptr<ArrayBuffer>>> computeEmbedding(
       const std::shared_ptr<ArrayBuffer>& samples) override;
+  /** Embedding dimension of the loaded model; 0 when nothing is loaded. */
+  double dim() override;
+  /** Stored embedding of an enrolled speaker (mono f32 bytes). */
+  std::shared_ptr<Promise<std::shared_ptr<ArrayBuffer>>> getEmbedding(const std::string& id) override;
   std::shared_ptr<Promise<RegisteredSpeaker>> registerSpeaker(
       const std::string& id,
       const std::string& name,

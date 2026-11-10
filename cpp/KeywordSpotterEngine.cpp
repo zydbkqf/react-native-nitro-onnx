@@ -3,6 +3,7 @@
 // ------------------------------------------------------------------------------
 #include "KeywordSpotterEngine.hpp"
 
+#include "ProviderSupport.hpp"
 #include "sherpa-onnx/c-api/c-api.h"
 
 #include <cstring>
@@ -41,6 +42,7 @@ void KeywordSpotterEngine::load(const KeywordSpotterEngineConfig& config) {
   stream_.reset();
   streamKeywords_.clear();
   config_ = config;
+  config_.provider = nitro_onnx::resolveProvider(config_.provider);
 
   auto cached = gKeywordSpotterCache.getOrCreate(config_.cacheSignature(), [this](const std::string&) {
     SherpaOnnxKeywordSpotterConfig c;
@@ -72,6 +74,14 @@ void KeywordSpotterEngine::load(const KeywordSpotterEngineConfig& config) {
     }
 
     const SherpaOnnxKeywordSpotter* kws = SherpaOnnxCreateKeywordSpotter(&c);
+    if (kws == nullptr && config_.provider != "cpu") {
+      // An accelerator that fails inside ORT surfaces as nullptr here, so
+      // retry once on CPU instead of failing the load.
+      nitro_onnx::logProviderDowngrade(config_.provider, "cpu", "session creation failed on it");
+      config_.provider = "cpu";
+      c.model_config.provider = config_.provider.c_str();
+      kws = SherpaOnnxCreateKeywordSpotter(&c);
+    }
     if (kws == nullptr) {
       throw std::runtime_error("Failed to create keyword spotter");
     }

@@ -9,6 +9,41 @@ def reactNativeArchitectures() {
   return value ? value.split(",") : ["armeabi-v7a", "x86", "x86_64", "arm64-v8a"]
 }
 
+// QNN_ROOT points at a Qualcomm AI Runtime (QAIRT) SDK root. When set, arm64-v8a
+// links the QNN-enabled sherpa-onnx/onnxruntime prebuilts (see CMakeLists.txt)
+// and the SDK runtime libraries are packaged into the APK.
+// QNN_HTP_VERSIONS is an optional, comma-separated list of HTP versions (e.g. "73"
+// or "73,75"). When empty, every Stub/Skel found in the SDK is packaged.
+def qnnRoot = findProperty("QNN_ROOT") ?: System.getenv("QNN_ROOT")
+def qnnHtpVersions = ((findProperty("QNN_HTP_VERSIONS") ?: System.getenv("QNN_HTP_VERSIONS")) ?: "")
+    .split(",")
+    .collect { it.trim() }
+    .findAll { it }
+
+// The bundled QNN prebuilts (libonnxruntime.so with the QNN EP, and the QNN variant
+// of libsherpa-onnx-c-api.so) are compiled against QNN API 2.30.0, taken from
+// qairt 2.40.0. Note that the SDK version (2.40.0) and this interface API version
+// (2.30.0) are different numbering schemes, and sdk.yaml's qnn_backend_api_version
+// is a third one - only QnnCommon.h matters here.
+//   * onnxruntime negotiates the version and rejects an older interface with
+//     "Unable to find a valid interface for ...".
+//   * sherpa-onnx takes the first provider's function table without any version
+//     check, so an older SDK (shorter table) turns into out-of-bounds calls.
+// Fail the build instead of shipping an APK that is guaranteed to misbehave.
+def qnnApiMinorBaseline = (findProperty("QNN_MIN_API_MINOR") ?: "30") as int
+
+def qnnApiMinorVersion = { root ->
+  def header = [
+    file("${root}/include/QNN/QnnCommon.h"),
+    file("${root}/QNN/include/QNN/QnnCommon.h"),
+  ].find { it.isFile() }
+  if (!header) {
+    return null
+  }
+  def matcher = (header.text =~ /(?m)^#define\s+QNN_API_VERSION_MINOR\s+(\d+)/)
+  return matcher.find() ? matcher.group(1) as int : null
+}
+
 apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 
@@ -16,18 +51,35 @@ android {
   namespace "com.margelo.nitro.onnx.speech"
   compileSdk safeExtGet("compileSdkVersion", 34)
 
+  sourceSets {
+    main {
+      if (qnnRoot) {
+        // Populated by copyQnnRuntimeLibs with the QNN SDK runtime libraries.
+        jniLibs.srcDirs += ["${buildDir}/qnnJniLibs"]
+      }
+    }
+  }
+
+  packagingOptions {
+    // QNN ships prebuilt libraries; keep them untouched.
+    doNotStrip "**/libQnn*.so"
+  }
+
   defaultConfig {
-    minSdk safeExtGet("minSdkVersion", 21)
+    minSdk safeExtGet("minSdkVersion", 24)
     externalNativeBuild {
       cmake {
         cppFlags "-std=c++20 -O3 -fexceptions -frtti"
         arguments "-DANDROID_STL=c++_shared"
         abiFilters (*reactNativeArchitectures())
 
-        // Pass QNN_ROOT to CMake if provided via gradle.properties or env var
-        def qnnRoot = findProperty("QNN_ROOT") ?: System.getenv("QNN_ROOT")
+        // QNN_ROOT selects the QNN prebuilt variant; QNN_HTP_VERSIONS is forwarded
+        // to CMake for diagnostics and used by copyQnnRuntimeLibs below.
         if (qnnRoot) {
           arguments "-DQNN_ROOT=${qnnRoot}"
+        }
+        if (!qnnHtpVersions.isEmpty()) {
+          arguments "-DQNN_HTP_VERSIONS=${qnnHtpVersions.join(',')}"
         }
 
         buildTypes {
@@ -69,3 +121,173 @@ dependencies {
 }
 
 apply from: "../nitrogen/generated/android/NitroOnnxSpeech+autolinking.gradle"
+
+// QNN runtime libraries are copied out of QNN_ROOT (the caller's own SDK) at
+// build time. They split by role:
+//   * Stub / core libs are ARM ELF and are loaded by the dynamic loader, so they
+//     go into jniLibs and end up in lib/arm64-v8a/.
+//   * Skel is a Hexagon DSP binary (ELF e_machine QUALCOMM DSP6). The ARM linker
+//     cannot load it and fastrpc only reads real files, so it ships in assets
+//     and the native layer extracts it to filesDir and points
+//     ADSP_LIBRARY_PATH at it before the first QNN dlopen.
+if (qnnRoot) {
+  tasks.register("copyQnnJniLibs", Copy) {
+    group = "qnn"
+    description = "Copies ARM-side QNN runtime libraries from QNN_ROOT into the APK jniLibs."
+
+    into file("${buildDir}/qnnJniLibs/arm64-v8a")
+
+    // Always needed: HTP backend, its prepare stage, the system library and the
+    // CPU backend used for unsupported ops.
+    from("${qnnRoot}/lib/aarch64-android") {
+      include "libQnnHtp.so", "libQnnHtpPrepare.so", "libQnnSystem.so", "libQnnCpu.so"
+    }
+
+    if (!qnnHtpVersions.isEmpty()) {
+      qnnHtpVersions.each { v ->
+        from("${qnnRoot}/lib/aarch64-android") {
+          include "libQnnHtpV${v}Stub.so"
+        }
+      }
+    } else {
+      // Every version present in the SDK. Exclude the *CalculatorStub* helpers,
+      // which are model-conversion tools, not runtime libraries.
+      from("${qnnRoot}/lib/aarch64-android") {
+        include "libQnnHtpV*Stub.so"
+        exclude "**/*CalculatorStub.so"
+      }
+    }
+  }
+
+  tasks.register("copyQnnSkelAssets", Copy) {
+    group = "qnn"
+    description = "Copies Hexagon QNN Skel binaries into the APK assets for runtime extraction."
+
+    into file("${buildDir}/qnnAssets/qnn")
+
+    if (!qnnHtpVersions.isEmpty()) {
+      qnnHtpVersions.each { v ->
+        from("${qnnRoot}/lib/hexagon-v${v}/unsigned") {
+          include "libQnnHtpV${v}Skel.so"
+        }
+      }
+    } else {
+      // Each hexagon dir is its own source root so the file lands flattened as
+      // qnn/libQnnHtpV73Skel.so (AGP assets keep the relative path).
+      file("${qnnRoot}/lib").listFiles()?.findAll {
+        it.isDirectory() && it.name ==~ /hexagon-v\d+/
+      }?.each { hexagonDir ->
+        from("${hexagonDir}/unsigned") {
+          include "libQnnHtpV*Skel.so"
+        }
+      }
+    }
+  }
+
+  // Ship qnnAssets as assets: build/qnnAssets/qnn/*.so -> APK assets/qnn/*.so
+  android.sourceSets.main.assets.srcDirs += "${buildDir}/qnnAssets"
+
+  // preBuild is registered by AGP during evaluation, so bind it lazily rather
+  // than relying on it already existing at this point in the script.
+  afterEvaluate {
+    tasks.matching { it.name == "preBuild" }.configureEach {
+      dependsOn("copyQnnJniLibs", "copyQnnSkelAssets")
+    }
+  }
+
+  // Resolve the QNN sources up front so a bad QNN_ROOT or an unavailable
+  // QNN_HTP_VERSIONS entry fails the build instead of producing an APK that
+  // silently lacks the Stub/Skel pair it needs at runtime.
+  tasks.named("copyQnnJniLibs") {
+    doFirst {
+      def apiMinor = qnnApiMinorVersion(qnnRoot)
+      if (apiMinor == null) {
+        project.logger.warn(
+          "copyQnnJniLibs: could not read QNN_API_VERSION_MINOR from ${qnnRoot}; " +
+          "skipping the QNN API version check.")
+      } else if (apiMinor < qnnApiMinorBaseline) {
+        throw new GradleException(
+          "copyQnnJniLibs: QNN_ROOT uses QNN API 2.${apiMinor}.0, but the bundled QNN prebuilts " +
+          "(libonnxruntime.so and the QNN variant of libsherpa-onnx-c-api.so) target " +
+          "2.${qnnApiMinorBaseline}.0. onnxruntime would reject that interface " +
+          "(\"Unable to find a valid interface\") and sherpa-onnx calls the interface table " +
+          "without any version check, which reads past its end.\n" +
+          "  Use a matching qairt SDK, or rebuild the QNN variants against this SDK.\n" +
+          "  QNN_ROOT=${qnnRoot}")
+      }
+
+      def missing = []
+      if (qnnHtpVersions.isEmpty()) {
+        def stubs = project.fileTree("${qnnRoot}/lib/aarch64-android") {
+          include "libQnnHtpV*Stub.so"
+          exclude "**/*CalculatorStub.so"
+        }.files
+        if (stubs.isEmpty()) {
+          throw new GradleException(
+            "copyQnnJniLibs: no libQnnHtpV*Stub.so under ${qnnRoot}/lib/aarch64-android. " +
+            "Set QNN_ROOT to a valid QNN SDK or pin QNN_HTP_VERSIONS.")
+        }
+      } else {
+        qnnHtpVersions.each { v ->
+          def stub = file("${qnnRoot}/lib/aarch64-android/libQnnHtpV${v}Stub.so")
+          if (!stub.exists()) missing << stub.path
+        }
+        if (missing) {
+          throw new GradleException(
+            "copyQnnJniLibs: QNN_HTP_VERSIONS=${qnnHtpVersions.join(',')} resolved to missing files:\n  " +
+            missing.join("\n  "))
+        }
+      }
+    }
+  }
+
+  tasks.named("copyQnnSkelAssets") {
+    doFirst {
+      def missing = []
+      if (qnnHtpVersions.isEmpty()) {
+        def skels = project.fileTree("${qnnRoot}/lib") {
+          include "hexagon-v*/unsigned/libQnnHtpV*Skel.so"
+        }.files
+        if (skels.isEmpty()) {
+          throw new GradleException(
+            "copyQnnSkelAssets: no libQnnHtpV*Skel.so under ${qnnRoot}/lib/hexagon-v*/unsigned. " +
+            "Set QNN_ROOT to a valid QNN SDK or pin QNN_HTP_VERSIONS.")
+        }
+      } else {
+        qnnHtpVersions.each { v ->
+          def skel = file("${qnnRoot}/lib/hexagon-v${v}/unsigned/libQnnHtpV${v}Skel.so")
+          if (!skel.exists()) missing << skel.path
+        }
+        if (missing) {
+          throw new GradleException(
+            "copyQnnSkelAssets: QNN_HTP_VERSIONS=${qnnHtpVersions.join(',')} resolved to missing files:\n  " +
+            missing.join("\n  "))
+        }
+      }
+    }
+  }
+}
+
+// The arm64-v8a prebuilts are compiled at API 27 so that ONNX Runtime and
+// sherpa-onnx include their NNAPI branches. ORT dlopen()s libneuralnetworks.so
+// instead of linking it, so NNAPI itself is not a hard requirement - but the
+// API-27 toolchain pulls in post-21 libc symbols (measured: __write_chk,
+// API 24), so on an API 21-23 device the loader rejects libonnxruntime.so
+// outright and every provider - including "cpu" - breaks.
+// From API 24 to 26 the library loads, and provider "nnapi" degrades to "cpu"
+// at runtime (cpp/ProviderSupport.cpp) because libneuralnetworks.so is absent.
+afterEvaluate {
+  def minSdk = android.defaultConfig.minSdk
+  if (minSdk != null && minSdk < 24) {
+    throw new GradleException(
+      "react-native-nitro-onnx ships API-27 prebuilts for arm64-v8a, but minSdk is ${minSdk}. " +
+      "They reference libc symbols introduced at API 24 (__write_chk), so API 21-23 devices " +
+      "fail to load libonnxruntime.so at all - including the \"cpu\" provider.\n" +
+      "  Raise minSdk to 24+ (React Native 0.76+ already requires that).")
+  }
+  if (minSdk != null && minSdk < 27) {
+    project.logger.warn(
+      "react-native-nitro-onnx with minSdk=${minSdk}: devices below API 27 have no " +
+      "libneuralnetworks.so, so provider \"nnapi\" falls back to \"cpu\" at runtime.")
+  }
+}

@@ -1,4 +1,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+  <application>
+    <!--
+      The QNN HTP backend reaches the Hexagon DSP through fastrpc, which lives in
+      the vendor library libcdsprpc.so. libQnnHtp.so only lists libc/libm/libdl/
+      liblog as DT_NEEDED, it dlopens this one at runtime. Being a vendor library
+      rather than an NDK one, it is invisible to the app on Android 11+ unless it
+      is declared here; without this entry qnn_interface.deviceCreate() fails
+      with error 14001 even though every QNN user-space library is in jniLibs.
+      required="false" keeps the app installable and runnable on devices that do
+      not ship it (MediaTek platforms, for example), where the QNN path is simply
+      never taken.
+    -->
+    <uses-native-library android:name="libcdsprpc.so" android:required="false" />
+  </application>
 </manifest>

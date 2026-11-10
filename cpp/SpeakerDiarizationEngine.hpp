@@ -25,6 +25,7 @@ struct SpeakerDiarizationEngineConfig {
   float threshold = 0.5f;
   float minDurationOn = 0.3f;
   float minDurationOff = 0.5f;
+  bool computeConfidence = true;
   int32_t numThreads = 1;
   bool debug = false;
   std::string provider = "cpu";
@@ -33,6 +34,7 @@ struct SpeakerDiarizationEngineConfig {
     return modelDir + "|diarization|" + segmentationModel + "|" + embeddingModel + "|" +
            std::to_string(numClusters) + "|" + std::to_string(threshold) + "|" +
            std::to_string(minDurationOn) + "|" + std::to_string(minDurationOff) + "|" +
+           (computeConfidence ? "conf" : "noconf") + "|" +
            std::to_string(numThreads) + "|" + provider;
   }
 };
@@ -42,6 +44,8 @@ struct SpeakerDiarizationEngineSegment {
   float startMs = 0.0f;
   float endMs = 0.0f;
   int32_t speaker = 0;
+  // [-1, 1] when computed; -2 marks "unavailable" exactly as the C API does.
+  float confidence = -2.0f;
 };
 
 /** Native diarization result. */

@@ -49,16 +49,28 @@ struct AsrEngineConfig {
   /** Comma-separated ITN FAR archive paths (resolved against modelDir). */
   std::string ruleFars;
   bool debug = false;
-#if defined(__ANDROID__)
-  // QNN is opt-in (provider: "qnn"); it is never the default because it only
-  // supports its own operator set. Compiling with -DQNN_ROOT merely makes it
-  // available. Default stays nnapi on Android.
-  std::string provider = "nnapi";
-#elif defined(__APPLE__)
-  std::string provider = "coreml";
-#else
+  // Accelerator providers are opt-in: "qnn" (Android, built with -DQNN_ROOT),
+  // "nnapi" (Android, built with the NNAPI variant), "coreml" (Apple). The
+  // default stays "cpu": the accelerators are either unavailable on the device
+  // or slower than CPU for this workload, so measure before enabling one.
   std::string provider = "cpu";
-#endif
+
+  /**
+   * QNN settings, used only when provider is "qnn".
+   *
+   * Empty values fall back to the libraries bundled in the app, addressed by
+   * soname ("libQnnHtp.so" / "libQnnSystem.so"), which the dynamic loader
+   * resolves from the native library dir. Set them explicitly to point at a
+   * different runtime, e.g. one staged outside the APK.
+   */
+  std::string qnnBackendLib;
+  /**
+   * QNN context binaries are not configured separately: when `provider` is "qnn"
+   * and encoder/decoder/joiner all end in ".bin", they are joined with commas and
+   * passed as the context binary list (sherpa maps them positionally). Unset
+   * qnnSystemLib is also required in that mode and defaults to "libQnnSystem.so".
+   */
+  std::string qnnSystemLib;
 
   /** Cache-key signature covering options that change recognizer identity. */
   std::string cacheSignature() const;

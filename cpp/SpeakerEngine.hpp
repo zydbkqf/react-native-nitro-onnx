@@ -60,6 +60,19 @@ class SpeakerEngine final {
   /** Compute an embedding from 16 kHz mono f32 PCM audio. */
   std::vector<float> computeEmbedding(const std::vector<float>& samples);
 
+  /**
+   * Embedding dimension of the loaded model, i.e.
+   * SherpaOnnxSpeakerEmbeddingManagerDim(). Returns 0 when nothing is loaded.
+   */
+  int32_t embeddingDim();
+
+  /**
+   * Return the stored embedding of an enrolled speaker, or an empty vector when
+   * the speaker is unknown. Mirrors SherpaOnnxSpeakerEmbeddingManagerGetEmbedding()
+   * plus DestroyEmbedding(); the vector is owned by the caller.
+   */
+  std::vector<float> getEmbedding(const std::string& id);
+
   /** Register a speaker embedding for later TTS use. */
   SpeakerEngineRegisteredSpeaker registerSpeaker(
       const std::string& id, const std::string& name, const std::vector<float>& embedding);

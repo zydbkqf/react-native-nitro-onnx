@@ -1,6 +1,7 @@
 package com.margelo.nitro.onnx.speech
 
 import android.content.Context
+import android.content.res.AssetManager
 import android.util.Log
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule
@@ -23,6 +24,16 @@ class OnnxSpeechPackage : ReactPackage {
 
     @JvmStatic
     private external fun setDocumentDir(dir: String)
+
+    /**
+     * Extracts the bundled Hexagon Skel binaries (assets/qnn, filenames ending
+     * in "Skel.so") into <filesDir>/qnn and prepends that dir to
+     * ADSP_LIBRARY_PATH. Skel is a Hexagon DSP ELF: the ARM loader cannot dlopen
+     * it and fastrpc only reads real files, so it cannot live in jniLibs.
+     * Returns the number of Skel files found (0 when QNN was not compiled in).
+     */
+    @JvmStatic
+    private external fun extractQnnSkel(assetManager: AssetManager, filesDir: String): Int
 
     /**
      * Copies bundled model files from APK assets to internal storage so that
@@ -53,6 +64,15 @@ class OnnxSpeechPackage : ReactPackage {
       }
       setResourceDir(filesDir.absolutePath)
       setDocumentDir(context.filesDir.absolutePath)
+
+      // Idempotent (size-checked); must run before any QNN session is created
+      // because ADSP_LIBRARY_PATH is read when the backend loads its Skel.
+      try {
+        val qncCtx = context.createDeviceProtectedStorageContext()
+        extractQnnSkel(context.assets, qncCtx.filesDir.absolutePath)
+      } catch (e: Exception) {
+        Log.w(TAG, "Failed to extract QNN Skel binaries", e)
+      }
     }
 
     private fun copyAsset(context: Context, name: String, destDir: File, overwrite: Boolean = false) {
@@ -66,6 +86,12 @@ class OnnxSpeechPackage : ReactPackage {
     }
   }
 
+  // ReactPackage.createNativeModules is @Deprecated in RN 0.88 (migrate to
+  // BaseReactPackage/getModule), but it is the only startup hook that fires for
+  // every package: getModule() is a by-name lookup and Nitro HybridObjects
+  // (createVad etc.) are resolved in C++ without ever reaching it. Keep the
+  // override so ensureResources() runs, and silence the deprecation warning.
+  @Suppress("OVERRIDE_DEPRECATION")
   override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
     // RN calls this for every registered package at startup, unlike getModule()
     // which only fires on a by-name TurboModule lookup. Nitro HybridObjects

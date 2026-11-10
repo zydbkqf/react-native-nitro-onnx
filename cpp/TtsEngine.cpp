@@ -3,6 +3,7 @@
 // ------------------------------------------------------------------------------
 #include "TtsEngine.hpp"
 
+#include "ProviderSupport.hpp"
 #include "sherpa-onnx/c-api/c-api.h"
 
 #include <cstring>
@@ -83,6 +84,7 @@ TtsEngine::~TtsEngine() {
 void TtsEngine::load(const TtsEngineConfig& config) {
   unload();
   config_ = config;
+  config_.provider = nitro_onnx::resolveProvider(config_.provider);
 
   auto cached = gTtsCache.getOrCreate(config_.cacheSignature(), [this](const std::string&) {
     SherpaOnnxOfflineTtsConfig c;
@@ -94,8 +96,6 @@ void TtsEngine::load(const TtsEngineConfig& config) {
     std::string tokens = joinPath(config_.modelDir, config_.tokens);
     std::string lexicon = joinPath(config_.modelDir, config_.lexicon);
     std::string voices = joinPath(config_.modelDir, config_.voices);
-    std::string espeakNgData = joinPath(config_.modelDir, config_.espeakNgData);
-    std::string dictDir = joinPath(config_.modelDir, config_.dictDir);
 
     std::string lmMain = joinPath(config_.modelDir, config_.lmMain);
     std::string lmFlow = joinPath(config_.modelDir, config_.lmFlow);
@@ -108,14 +108,25 @@ void TtsEngine::load(const TtsEngineConfig& config) {
     std::string zipvoiceEncoder = joinPath(config_.modelDir, config_.zipvoiceEncoder);
     std::string zipvoiceDecoder = joinPath(config_.modelDir, config_.zipvoiceDecoder);
 
+    // sherpa-onnx >= 2.0 dropped espeak-ng entirely: data_dir is ignored and any
+    // non-empty value only makes sherpa log a deprecation warning. dict_dir has
+    // been unnecessary since v1.12.15. Warn once here instead of passing them on.
+    if (!config_.espeakNgData.empty()) {
+      TTS_LOG("espeakNgData '%s' is ignored: sherpa-onnx >= 2.0 no longer uses "
+              "espeak-ng. Provide a lexicon or pre-phonemized tokens instead.",
+              config_.espeakNgData.c_str());
+    }
+    if (!config_.dictDir.empty()) {
+      TTS_LOG("dictDir '%s' is ignored: not needed since sherpa-onnx v1.12.15.",
+              config_.dictDir.c_str());
+    }
+
     switch (config_.type) {
       case TtsModelType::KOKORO: {
         const std::string& kokoroModel = config_.model.empty() ? acoustic : model;
         TTS_LOG("Kokoro model:    %s", kokoroModel.c_str());
         TTS_LOG("Kokoro voices:   %s", voices.c_str());
         TTS_LOG("Kokoro tokens:   %s", tokens.c_str());
-        TTS_LOG("Kokoro data_dir: %s", espeakNgData.c_str());
-        TTS_LOG("Kokoro dict_dir: %s", dictDir.c_str());
         TTS_LOG("Kokoro lexicon:  %s", lexicon.c_str());
         checkFile(kokoroModel, "kokoro.model");
         checkFile(voices, "kokoro.voices");
@@ -124,27 +135,29 @@ void TtsEngine::load(const TtsEngineConfig& config) {
         c.model.kokoro.model = kokoroModel.c_str();
         c.model.kokoro.voices = voices.c_str();
         c.model.kokoro.tokens = tokens.c_str();
-        c.model.kokoro.data_dir = espeakNgData.c_str();
-        c.model.kokoro.dict_dir = dictDir.c_str();
         c.model.kokoro.lexicon = lexicon.c_str();
         break;
       }
       case TtsModelType::VITS: {
         const std::string& vitsModel = config_.model.empty() ? acoustic : model;
+        if (lexicon.empty()) {
+          TTS_LOG("VITS: no lexicon. sherpa-onnx >= 2.0 no longer phonemizes with "
+                  "espeak-ng; pass TtsModelConfig.lexicon or expect empty output.");
+        }
         c.model.vits.model = vitsModel.c_str();
         c.model.vits.lexicon = lexicon.c_str();
         c.model.vits.tokens = tokens.c_str();
-        c.model.vits.data_dir = espeakNgData.c_str();
-        c.model.vits.dict_dir = dictDir.c_str();
         break;
       }
       case TtsModelType::MATCHA:
+        if (lexicon.empty()) {
+          TTS_LOG("Matcha: no lexicon. sherpa-onnx >= 2.0 no longer phonemizes with "
+                  "espeak-ng; pass TtsModelConfig.lexicon or expect empty output.");
+        }
         c.model.matcha.acoustic_model = acoustic.c_str();
         c.model.matcha.vocoder = vocoder.c_str();
         c.model.matcha.lexicon = lexicon.c_str();
         c.model.matcha.tokens = tokens.c_str();
-        c.model.matcha.data_dir = espeakNgData.c_str();
-        c.model.matcha.dict_dir = dictDir.c_str();
         break;
       case TtsModelType::POCKET:
         c.model.pocket.lm_main = lmMain.c_str();
@@ -167,11 +180,14 @@ void TtsEngine::load(const TtsEngineConfig& config) {
               "in modelDir, and set TtsModelConfig.vocoder to its filename");
         }
         checkFile(vocoder, "zipvoice.vocoder");
+        if (lexicon.empty()) {
+          TTS_LOG("ZipVoice: no lexicon. sherpa-onnx >= 2.0 no longer phonemizes with "
+                  "espeak-ng; pass TtsModelConfig.lexicon or expect empty output.");
+        }
         c.model.zipvoice.tokens = tokens.c_str();
         c.model.zipvoice.encoder = zipvoiceEncoder.c_str();
         c.model.zipvoice.decoder = zipvoiceDecoder.c_str();
         c.model.zipvoice.vocoder = vocoder.c_str();
-        c.model.zipvoice.data_dir = espeakNgData.c_str();
         c.model.zipvoice.lexicon = lexicon.c_str();
         break;
     }
@@ -187,6 +203,14 @@ void TtsEngine::load(const TtsEngineConfig& config) {
     c.max_num_sentences = 1;
 
     const SherpaOnnxOfflineTts* tts = SherpaOnnxCreateOfflineTts(&c);
+    if (tts == nullptr && config_.provider != "cpu") {
+      // An accelerator that fails inside ORT surfaces as nullptr here, so
+      // retry once on CPU instead of failing the load.
+      nitro_onnx::logProviderDowngrade(config_.provider, "cpu", "session creation failed on it");
+      config_.provider = "cpu";
+      c.model.provider = config_.provider.c_str();
+      tts = SherpaOnnxCreateOfflineTts(&c);
+    }
     if (tts == nullptr) {
       TTS_LOG("SherpaOnnxCreateOfflineTts returned nullptr (type=%d, modelDir=%s)",
               static_cast<int>(config_.type), config_.modelDir.c_str());
@@ -209,21 +233,54 @@ TtsEngineResult TtsEngine::synthesize(
     const std::string& text,
     int32_t speakerId,
     float speed,
-    const TtsReferenceAudio* referenceAudio) {
+    const TtsReferenceAudio* referenceAudio,
+    const std::vector<std::vector<int32_t>>* phonemeCodepoints) {
   if (tts_ == nullptr) {
     throw std::runtime_error("TTS not loaded");
   }
-  if (text.empty()) {
-    throw std::invalid_argument("TTS text must not be empty");
+  const bool hasPhonemes = phonemeCodepoints != nullptr && !phonemeCodepoints->empty();
+  if (hasPhonemes && config_.type == TtsModelType::POCKET) {
+    // offline-tts-pocket-impl ignores GenerationConfig.phoneme_codepoints
+    // entirely, so accepting the call would silently return silence.
+    throw std::invalid_argument(
+        "synthesizePhonemes is not supported by the POCKET model; phoneme "
+        "codepoints are only honoured by VITS, Matcha, Kokoro, Kitten and "
+        "ZipVoice");
+  }
+  if (text.empty() && !hasPhonemes) {
+    throw std::invalid_argument("TTS text must not be empty (or pass phonemeCodepoints)");
   }
 
   const int32_t sid = speakerId >= 0 ? speakerId : config_.speakerId;
   const float playbackSpeed = speed > 0.0f ? speed : config_.speed;
 
+  // Holds the flattened codepoints / per-sentence lengths; must outlive the
+  // Generate call below since genConfig only stores pointers into them.
+  std::vector<int32_t> flatPhonemes;
+  std::vector<int32_t> phonemeLens;
+
   SherpaOnnxGenerationConfig genConfig;
   std::memset(&genConfig, 0, sizeof(genConfig));
   genConfig.sid = sid;
   genConfig.speed = playbackSpeed;
+  if (hasPhonemes) {
+    int32_t total = 0;
+    for (const auto& sentence : *phonemeCodepoints) {
+      if (sentence.empty()) {
+        throw std::invalid_argument("every phonemeCodepoints sentence must be non-empty");
+      }
+      total += static_cast<int32_t>(sentence.size());
+    }
+    flatPhonemes.reserve(static_cast<size_t>(total));
+    phonemeLens.reserve(phonemeCodepoints->size());
+    for (const auto& sentence : *phonemeCodepoints) {
+      flatPhonemes.insert(flatPhonemes.end(), sentence.begin(), sentence.end());
+      phonemeLens.push_back(static_cast<int32_t>(sentence.size()));
+    }
+    genConfig.phoneme_codepoints = flatPhonemes.data();
+    genConfig.phoneme_codepoints_lens = phonemeLens.data();
+    genConfig.phoneme_codepoints_num_sentences = static_cast<int32_t>(phonemeLens.size());
+  }
   if (referenceAudio != nullptr && !referenceAudio->samples.empty()) {
     if (config_.type == TtsModelType::ZIPVOICE && referenceAudio->text.empty()) {
       throw std::invalid_argument(

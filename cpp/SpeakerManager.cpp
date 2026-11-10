@@ -57,6 +57,20 @@ std::shared_ptr<Promise<std::shared_ptr<ArrayBuffer>>> SpeakerManager::computeEm
   });
 }
 
+double SpeakerManager::dim() {
+  return static_cast<double>(engine_.embeddingDim());
+}
+
+std::shared_ptr<Promise<std::shared_ptr<ArrayBuffer>>> SpeakerManager::getEmbedding(const std::string& id) {
+  return Promise<std::shared_ptr<ArrayBuffer>>::async([self = shared_cast<SpeakerManager>(), id]() {
+    auto embedding = self->engine_.getEmbedding(id);
+    if (embedding.empty()) {
+      throw std::invalid_argument("Speaker not found: " + id);
+    }
+    return ArrayBuffer::move(floatVectorToBytes(embedding));
+  });
+}
+
 std::shared_ptr<Promise<RegisteredSpeaker>> SpeakerManager::registerSpeaker(
     const std::string& id,
     const std::string& name,

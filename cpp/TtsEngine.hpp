@@ -49,16 +49,19 @@ struct TtsEngineConfig {
   /** Comma-separated TN FAR archive paths (resolved against modelDir). */
   std::string ruleFars;
   bool debug = false;
-#ifdef __APPLE__
-  std::string provider = "coreml";
-#else
+  // Accelerator providers are opt-in: "qnn"/"nnapi" on Android, "coreml" on
+  // Apple. The default stays "cpu".
   std::string provider = "cpu";
-#endif
 
   std::string cacheSignature() const {
-    return modelDir + "|" + std::to_string(static_cast<int>(type)) + "|" + provider + "|" +
-           std::to_string(numThreads) + "|" + std::to_string(outputSampleRate) + "|" + ruleFsts + "|" +
-           ruleFars;
+    // The engine instance is cached per signature, so every file name that
+    // changes what gets loaded belongs in the key. Since sherpa-onnx 2.0 the
+    // lexicon decides phonemization, so switching lexicon must not reuse an
+    // engine built for the previous one.
+    return modelDir + "|" + std::to_string(static_cast<int>(type)) + "|" + model + "|" +
+           acousticModel + "|" + vocoder + "|" + tokens + "|" + lexicon + "|" + voices + "|" +
+           config + "|" + provider + "|" + std::to_string(numThreads) + "|" +
+           std::to_string(outputSampleRate) + "|" + ruleFsts + "|" + ruleFars;
   }
 };
 
@@ -94,7 +97,11 @@ class TtsEngine final {
       const std::string& text,
       int32_t speakerId,
       float speed,
-      const TtsReferenceAudio* referenceAudio = nullptr);
+      const TtsReferenceAudio* referenceAudio = nullptr,
+      // Pre-phonemized input, one entry per sentence. When set, `text` is
+      // ignored and no lexicon lookup happens (maps to
+      // SherpaOnnxGenerationConfig.phoneme_codepoints / _lens / _num_sentences).
+      const std::vector<std::vector<int32_t>>* phonemeCodepoints = nullptr);
   void unload();
 
  private:
