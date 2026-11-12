@@ -82,7 +82,10 @@ TtsEngine::~TtsEngine() {
 }
 
 void TtsEngine::load(const TtsEngineConfig& config) {
-  unload();
+  // Keep the lock for the whole build: a concurrent synthesize must either see
+  // the previous engine or the fully loaded one, never a half-built config.
+  std::lock_guard<std::mutex> lock(mutex_);
+  tts_.reset();
   config_ = config;
   config_.provider = nitro_onnx::resolveProvider(config_.provider);
 
@@ -227,6 +230,7 @@ void TtsEngine::load(const TtsEngineConfig& config) {
 }
 
 bool TtsEngine::isLoaded() const {
+  std::lock_guard<std::mutex> lock(mutex_);
   return tts_ != nullptr;
 }
 
@@ -236,6 +240,7 @@ TtsEngineResult TtsEngine::synthesize(
     float speed,
     const TtsReferenceAudio* referenceAudio,
     const std::vector<std::vector<int32_t>>* phonemeCodepoints) {
+  std::lock_guard<std::mutex> lock(mutex_);
   if (tts_ == nullptr) {
     throw std::runtime_error("TTS not loaded");
   }
@@ -337,6 +342,7 @@ TtsEngineResult TtsEngine::synthesize(
 }
 
 void TtsEngine::unload() {
+  std::lock_guard<std::mutex> lock(mutex_);
   tts_.reset();
 }
 

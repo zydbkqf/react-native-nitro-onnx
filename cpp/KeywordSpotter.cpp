@@ -67,16 +67,10 @@ std::shared_ptr<Promise<void>> KeywordSpotter::acceptWaveform(
     try {
       triggered = self->engine_.acceptWaveform(floatSamples);
     } catch (const std::exception& e) {
-      if (self->onError_.has_value()) {
-        self->onError_.value()(e.what());
-      }
+      self->emitError(e.what());
       throw;
     }
-    if (self->onKeyword_.has_value()) {
-      for (const auto& hit : triggered) {
-        self->onKeyword_.value()(toKeywordSpotterResult(hit));
-      }
-    }
+    self->emitKeywords(triggered);
   });
 }
 
@@ -85,9 +79,7 @@ std::shared_ptr<Promise<void>> KeywordSpotter::setKeywords(const std::string& ke
     try {
       self->engine_.setKeywords(keywords);
     } catch (const std::exception& e) {
-      if (self->onError_.has_value()) {
-        self->onError_.value()(e.what());
-      }
+      self->emitError(e.what());
       throw;
     }
   });
@@ -98,9 +90,7 @@ std::shared_ptr<Promise<void>> KeywordSpotter::reset() {
     try {
       self->engine_.reset();
     } catch (const std::exception& e) {
-      if (self->onError_.has_value()) {
-        self->onError_.value()(e.what());
-      }
+      self->emitError(e.what());
       throw;
     }
   });
@@ -111,9 +101,7 @@ std::shared_ptr<Promise<void>> KeywordSpotter::unload() {
     try {
       self->engine_.unload();
     } catch (const std::exception& e) {
-      if (self->onError_.has_value()) {
-        self->onError_.value()(e.what());
-      }
+      self->emitError(e.what());
       throw;
     }
   });
@@ -121,21 +109,50 @@ std::shared_ptr<Promise<void>> KeywordSpotter::unload() {
 
 std::optional<std::function<void(const KeywordSpotterResult& /* result */)>>
 KeywordSpotter::getOnKeyword() {
+  std::lock_guard<std::mutex> lock(callbackMutex_);
   return onKeyword_;
 }
 
 void KeywordSpotter::setOnKeyword(
     const std::optional<std::function<void(const KeywordSpotterResult& /* result */)>>& onKeyword) {
+  std::lock_guard<std::mutex> lock(callbackMutex_);
   onKeyword_ = onKeyword;
 }
 
 std::optional<std::function<void(const std::string& /* error */)>> KeywordSpotter::getOnError() {
+  std::lock_guard<std::mutex> lock(callbackMutex_);
   return onError_;
 }
 
 void KeywordSpotter::setOnError(
     const std::optional<std::function<void(const std::string& /* error */)>>& onError) {
+  std::lock_guard<std::mutex> lock(callbackMutex_);
   onError_ = onError;
+}
+
+void KeywordSpotter::emitError(const std::string& error) {
+  std::optional<std::function<void(const std::string&)>> callback;
+  {
+    std::lock_guard<std::mutex> lock(callbackMutex_);
+    callback = onError_;
+  }
+  if (callback.has_value()) {
+    callback.value()(error);
+  }
+}
+
+void KeywordSpotter::emitKeywords(const std::vector<KeywordSpotterEngineResult>& hits) {
+  std::optional<std::function<void(const KeywordSpotterResult&)>> callback;
+  {
+    std::lock_guard<std::mutex> lock(callbackMutex_);
+    callback = onKeyword_;
+  }
+  if (!callback.has_value()) {
+    return;
+  }
+  for (const auto& hit : hits) {
+    callback.value()(toKeywordSpotterResult(hit));
+  }
 }
 
 }  // namespace margelo::nitro::onnx::speech

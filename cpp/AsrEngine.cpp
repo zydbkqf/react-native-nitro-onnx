@@ -203,11 +203,15 @@ void applyQnnFields(SherpaOnnxOfflineModelConfig* m, const QnnFields& f) {
 }  // namespace
 
 std::string AsrEngineConfig::cacheSignature() const {
+  // Every field that changes what SherpaOnnxCreate*Recognizer loads belongs in
+  // the key; two loads that differ only in tokens or in a Whisper / single-file
+  // model path must not share a cached recognizer.
   return modelDir + "|" + std::to_string(static_cast<int>(type)) + "|" + provider + "|" +
          std::to_string(numThreads) + "|" + language + "|" + decodingMethod + "|" +
          std::to_string(maxActivePaths) + "|" + (useItn ? "1" : "0") + "|" + hotwordsFile + "|" +
          hotwordsBuf + "|" + std::to_string(hotwordsScore) + "|" + ruleFsts + "|" + ruleFars + "|" +
-         qnnBackendLib + "|" + qnnSystemLib + "|" + encoder + "|" + decoder + "|" + joiner;
+         qnnBackendLib + "|" + qnnSystemLib + "|" + encoder + "|" + decoder + "|" + joiner + "|" +
+         tokensPath + "|" + whisperEncoder + "|" + whisperDecoder + "|" + model;
 }
 
 // ------------------------------------------------------------------------------
@@ -359,19 +363,23 @@ AsrEngineResult OfflineAsrEngine::recognizeWithHotwords(
   // Copy the shared_ptr under the lock, then decode without holding it so
   // concurrent recognize() calls can share the same const recognizer.
   std::shared_ptr<const SherpaOnnxOfflineRecognizer> recognizer;
+  std::string configuredHotwords;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!hotwords.empty()) {
       requireHotwordsCompatible(config_.decodingMethod, "recognizeWithHotwords");
     }
     recognizer = recognizer_;
+    // Copy the configured hotwords here: config_ may be reassigned by a
+    // concurrent load(), and reading it after the lock is a data race.
+    configuredHotwords = config_.hotwordsBuf;
   }
   if (recognizer == nullptr) {
     throw std::runtime_error("Offline ASR not loaded");
   }
 
   const SherpaOnnxOfflineStream* stream = [&]() {
-    const std::string& hw = !hotwords.empty() ? hotwords : config_.hotwordsBuf;
+    const std::string& hw = !hotwords.empty() ? hotwords : configuredHotwords;
     return hw.empty()
         ? SherpaOnnxCreateOfflineStream(recognizer.get())
         : SherpaOnnxCreateOfflineStreamWithHotwords(recognizer.get(), hw.c_str());

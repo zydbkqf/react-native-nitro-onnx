@@ -11,6 +11,7 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 
 namespace margelo::nitro::onnx::speech {
@@ -48,6 +49,9 @@ class StreamingAsr : public HybridStreamingAsrSpec,
 
  private:
   StreamingAsrEngine engine_;
+  // Nitro sets these callbacks from the JS thread while the engine worker reads
+  // them; the mutex keeps the std::optional<std::function> itself safe to touch.
+  mutable std::mutex callbackMutex_;
   std::optional<std::function<void(const AsrResult&)>> onPartialResult_;
   std::optional<std::function<void(const AsrResult&)>> onFinalResult_;
   std::optional<std::function<void(const std::string&)>> onError_;

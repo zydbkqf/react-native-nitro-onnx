@@ -11,6 +11,7 @@
 #include "TtsModelType.hpp"
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -61,7 +62,12 @@ struct TtsEngineConfig {
     return modelDir + "|" + std::to_string(static_cast<int>(type)) + "|" + model + "|" +
            acousticModel + "|" + vocoder + "|" + tokens + "|" + lexicon + "|" + voices + "|" +
            config + "|" + provider + "|" + std::to_string(numThreads) + "|" +
-           std::to_string(outputSampleRate) + "|" + ruleFsts + "|" + ruleFars;
+           std::to_string(outputSampleRate) + "|" + ruleFsts + "|" + ruleFars + "|" +
+           // Pocket / ZipVoice are multi-file models: the individual file names
+           // are what get loaded, so they must not share a cached engine.
+           lmMain + "|" + lmFlow + "|" + textConditioner + "|" + pocketEncoder + "|" +
+           pocketDecoder + "|" + vocabJson + "|" + tokenScoresJson + "|" + zipvoiceEncoder + "|" +
+           zipvoiceDecoder;
   }
 };
 
@@ -105,6 +111,13 @@ class TtsEngine final {
   void unload();
 
  private:
+  /**
+   * Nitro runs load / unload / synthesize on its background thread pool, so
+   * `config_` and `tts_` are shared state: without this lock a synthesize
+   * racing a load reads a half-built config or calls into a freed engine.
+   * Synthesis holds the lock for its whole duration, matching SpeakerEngine.
+   */
+  mutable std::mutex mutex_;
   TtsEngineConfig config_;
   std::shared_ptr<const SherpaOnnxOfflineTts> tts_;
 };

@@ -35,6 +35,24 @@ std::string joinPath(const std::string& dir, const std::string& file) {
 
 ModelSingleton<const SherpaOnnxSpeakerEmbeddingExtractor> gExtractorCache;
 
+/**
+ * sherpa's embedding manager/search/verify APIs read `dim` floats from the
+ * pointer they are handed. A shorter vector therefore reads past the caller's
+ * allocation, so every embedding that crosses the C API boundary is checked
+ * here first.
+ */
+void validateEmbeddingSize(const std::vector<float>& embedding, int32_t dim) {
+  if (dim <= 0) {
+    // No model loaded: the caller reports the "extractor not loaded" error.
+    return;
+  }
+  if (static_cast<int32_t>(embedding.size()) != dim) {
+    throw std::invalid_argument("Speaker embedding must contain exactly " +
+                                std::to_string(dim) + " floats, got " +
+                                std::to_string(embedding.size()));
+  }
+}
+
 }  // namespace
 
 std::string speakerFilePath(const std::string& id) {
@@ -115,10 +133,19 @@ SpeakerEngineRegisteredSpeaker SpeakerEngine::registerSpeaker(
   const std::string speakersDir = joinPath(getDocumentDir(), "speakers");
   std::filesystem::create_directories(speakersDir);
   const std::string path = speakerFilePath(id);
-  writeSpeakerRecord(path, name, embedding, nullptr, 0);
   {
+    // Record write and manager update must be one atomic step: two concurrent
+    // registerSpeaker calls for the same id would otherwise interleave their
+    // partial writes and leave a truncated .bin behind.
     std::lock_guard<std::mutex> lock(mutex_);
     ensureManagerLocked();
+    const int32_t dim = manager_ != nullptr
+                            ? SherpaOnnxSpeakerEmbeddingManagerDim(manager_.get())
+                            : (extractor_ != nullptr
+                                   ? SherpaOnnxSpeakerEmbeddingExtractorDim(extractor_.get())
+                                   : 0);
+    validateEmbeddingSize(embedding, dim);
+    writeSpeakerRecord(path, name, embedding, nullptr, 0);
     if (manager_ != nullptr) {
       SherpaOnnxSpeakerEmbeddingManagerRemove(manager_.get(), id.c_str());
       SherpaOnnxSpeakerEmbeddingManagerAdd(manager_.get(), id.c_str(), embedding.data());
@@ -155,11 +182,13 @@ SpeakerEngineRegisteredSpeaker SpeakerEngine::registerSpeakerFromFile(
   const std::string speakersDir = joinPath(getDocumentDir(), "speakers");
   std::filesystem::create_directories(speakersDir);
   const std::string outPath = speakerFilePath(id);
-  writeSpeakerRecord(outPath, name, embedding, &samples, 16000);
-
   {
     std::lock_guard<std::mutex> lock(mutex_);
     ensureManagerLocked();
+    if (manager_ != nullptr) {
+      validateEmbeddingSize(embedding, SherpaOnnxSpeakerEmbeddingManagerDim(manager_.get()));
+    }
+    writeSpeakerRecord(outPath, name, embedding, &samples, 16000);
     if (manager_ != nullptr) {
       SherpaOnnxSpeakerEmbeddingManagerRemove(manager_.get(), id.c_str());
       SherpaOnnxSpeakerEmbeddingManagerAdd(manager_.get(), id.c_str(), embedding.data());
@@ -182,6 +211,9 @@ std::vector<SpeakerEngineRegisteredSpeaker> SpeakerEngine::listSpeakers() {
   if (!std::filesystem::exists(speakersDir)) {
     return result;
   }
+  // Hold the lock while reading: a concurrent registerSpeaker would otherwise
+  // expose a half-written record to readSpeakerRecord.
+  std::lock_guard<std::mutex> lock(mutex_);
   for (const auto& entry : std::filesystem::directory_iterator(speakersDir)) {
     if (!entry.is_regular_file()) continue;
     const auto& filePath = entry.path();
@@ -198,12 +230,14 @@ std::vector<SpeakerEngineRegisteredSpeaker> SpeakerEngine::listSpeakers() {
 
 void SpeakerEngine::removeSpeaker(const std::string& id) {
   const std::string path = speakerFilePath(id);
+  // Delete and unregister under the same lock used by register* so a concurrent
+  // register cannot recreate the record between the two steps.
+  std::lock_guard<std::mutex> lock(mutex_);
   std::error_code ec;
   std::filesystem::remove(path, ec);
   if (ec) {
     throw std::runtime_error("Failed to remove speaker: " + id + " (" + ec.message() + ")");
   }
-  std::lock_guard<std::mutex> lock(mutex_);
   if (manager_ != nullptr) {
     SherpaOnnxSpeakerEmbeddingManagerRemove(manager_.get(), id.c_str());
   }
@@ -215,7 +249,9 @@ std::string SpeakerEngine::search(const std::vector<float>& embedding, float thr
   if (manager_ == nullptr) {
     throw std::runtime_error("Speaker extractor not loaded");
   }
-  const char* name = SherpaOnnxSpeakerEmbeddingManagerSearch(manager_.get(), embedding.data(), threshold);
+  validateEmbeddingSize(embedding, SherpaOnnxSpeakerEmbeddingManagerDim(manager_.get()));
+  const char* name =
+      SherpaOnnxSpeakerEmbeddingManagerSearch(manager_.get(), embedding.data(), threshold);
   if (name == nullptr) {
     return std::string();
   }
@@ -230,6 +266,7 @@ bool SpeakerEngine::verify(const std::string& id, const std::vector<float>& embe
   if (manager_ == nullptr) {
     throw std::runtime_error("Speaker extractor not loaded");
   }
+  validateEmbeddingSize(embedding, SherpaOnnxSpeakerEmbeddingManagerDim(manager_.get()));
   return SherpaOnnxSpeakerEmbeddingManagerVerify(manager_.get(), id.c_str(), embedding.data(), threshold) != 0;
 }
 
@@ -240,6 +277,7 @@ std::vector<SpeakerEngineMatch> SpeakerEngine::getBestMatches(
   if (manager_ == nullptr) {
     throw std::runtime_error("Speaker extractor not loaded");
   }
+  validateEmbeddingSize(embedding, SherpaOnnxSpeakerEmbeddingManagerDim(manager_.get()));
   std::vector<SpeakerEngineMatch> result;
   const SherpaOnnxSpeakerEmbeddingManagerBestMatchesResult* raw =
       SherpaOnnxSpeakerEmbeddingManagerGetBestMatches(manager_.get(), embedding.data(), threshold, n);

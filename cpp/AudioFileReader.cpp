@@ -33,7 +33,11 @@ WavHeader parseFmtChunk(const uint8_t* data, size_t size) {
   std::memcpy(&h.audioFormat, data, 2);
   std::memcpy(&h.numChannels, data + 2, 2);
   std::memcpy(&h.sampleRate, data + 4, 4);
-  std::memcpy(&h.bitsPerSample, data + 12, 2);
+  // fmt chunk layout: format(0) channels(2) sampleRate(4) byteRate(8)
+  // blockAlign(12) bitsPerSample(14). Reading +12 yields blockAlign, which for
+  // 16-bit mono is 2 and for 16-bit stereo is 4 - decoding with that value
+  // either throws or reinterprets int16 samples as int32.
+  std::memcpy(&h.bitsPerSample, data + 14, 2);
 
   if (h.audioFormat != 1 && h.audioFormat != 3) {
     throw std::runtime_error("Unsupported WAV audio format (only PCM=1 and IEEE float=3 supported)");
@@ -140,6 +144,14 @@ std::vector<float> readWavFile(const std::string& path) {
     const char* chunkId = reinterpret_cast<const char*>(buf.data() + pos);
     uint32_t chunkSize = 0;
     std::memcpy(&chunkSize, buf.data() + pos + 4, 4);
+
+    // A truncated or hand-crafted file can declare a chunk larger than the
+    // bytes that actually exist; clamp so the cursor stays inside the buffer
+    // and decodeSamples never reads past the allocation.
+    const size_t remaining = buf.size() - (pos + 8);
+    if (chunkSize > remaining) {
+      chunkSize = static_cast<uint32_t>(remaining);
+    }
 
     if (std::memcmp(chunkId, "fmt ", 4) == 0) {
       header = parseFmtChunk(buf.data() + pos + 8, chunkSize);

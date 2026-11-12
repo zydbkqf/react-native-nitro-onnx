@@ -36,13 +36,21 @@ void VadEngine::initialize(const VadEngineConfig& config, std::shared_ptr<VadLis
   vadConfig.silero_vad.threshold = config_.threshold;
   vadConfig.silero_vad.min_silence_duration = config_.minSilenceDuration;
   vadConfig.silero_vad.min_speech_duration = config_.minSpeechDuration;
+  // Silero expects 512-sample frames at 16 kHz; 0 leaves the frame splitter
+  // unconfigured, which upstream also treats as "use the default" only for some
+  // builds, so set it explicitly.
+  vadConfig.silero_vad.window_size = 512;
   vadConfig.sample_rate = kSampleRate;
   vadConfig.num_threads = 1;
   vadConfig.debug = config_.debug ? 1 : 0;
 
-  // The second argument is the buffer size in milliseconds used internally by
-  // sherpa-onnx. We reuse the configured pre-buffer duration.
-  vad_ = SherpaOnnxCreateVoiceActivityDetector(&vadConfig, config_.preBufferMs);
+  // The second argument is buffer_size_in_seconds, i.e. how much audio the
+  // detector keeps internally before Front/Pop. Passing milliseconds here used
+  // to allocate 300 s (~19 MB) instead of the intended 0.3 s. This is separate
+  // from our own sliding pre-buffer, and it has to be large enough to hold a
+  // whole utterance when the caller feeds big chunks, so use the upstream
+  // default of 30 s rather than the pre-buffer length.
+  vad_ = SherpaOnnxCreateVoiceActivityDetector(&vadConfig, 30.0f);
   if (vad_ == nullptr) {
     throw std::runtime_error("Failed to create sherpa-onnx VAD");
   }
@@ -152,19 +160,22 @@ void VadEngine::processLoop() {
     std::shared_ptr<VadListener> listener = listener_.lock();
 
     if (speechDetected && !inSpeech_) {
-      // Transition to speech: capture the sliding pre-buffer as the start of
-      // the segment and notify JS immediately so the UI can react without
-      // waiting for speech end.
+      // Transition to speech: the sliding pre-buffer already contains the
+      // triggering chunk, so the segment starts exactly where the buffered
+      // audio starts. Deriving startMs from the buffer length keeps it in sync
+      // with the samples we hand out (it used to subtract the chunk duration
+      // twice, reporting a timestamp one chunk earlier than the audio).
       inSpeech_ = true;
-      currentSpeechStartMs_ = streamMs_ - samplesToMs(static_cast<int32_t>(chunk.size()));
       {
         std::lock_guard<std::mutex> lock(preBufferMutex_);
         currentSpeechSamples_.assign(preBuffer_.begin(), preBuffer_.end());
       }
+      currentSpeechStartMs_ =
+          streamMs_ - samplesToMs(static_cast<int32_t>(currentSpeechSamples_.size()));
 
       VadEngineSegment startSegment;
-      startSegment.startMs = currentSpeechStartMs_ - samplesToMs(static_cast<int32_t>(currentSpeechSamples_.size()));
-      startSegment.endMs = currentSpeechStartMs_;
+      startSegment.startMs = currentSpeechStartMs_;
+      startSegment.endMs = streamMs_;
       startSegment.samples = currentSpeechSamples_;
       if (listener) {
         listener->onSpeechStart(startSegment);
@@ -188,9 +199,26 @@ void VadEngine::processLoop() {
       }
 
       VadEngineSegment endSegment;
-      endSegment.startMs = currentSpeechStartMs_;
-      endSegment.endMs = streamMs_;
-      endSegment.samples = std::move(currentSpeechSamples_);
+      if (inSpeech_ && !currentSpeechSamples_.empty()) {
+        // Preferred path: our accumulated buffer carries the pre-roll that
+        // sherpa's own segment lacks.
+        endSegment.samples = std::move(currentSpeechSamples_);
+        endSegment.startMs = currentSpeechStartMs_;
+        endSegment.endMs = streamMs_;
+        currentSpeechSamples_.clear();
+        inSpeech_ = false;
+      } else {
+        // Fallback for segments we never latched onto - a second queued segment
+        // in this same drain loop, or a segment that completed before speech
+        // was observed. Previously these came out with an empty sample vector
+        // (the buffer had been moved out) and a stale startMs; take sherpa's
+        // own audio and absolute sample offset instead.
+        endSegment.samples.assign(seg->samples, seg->samples + seg->n);
+        endSegment.startMs = seg->start >= 0
+                                 ? static_cast<float>(seg->start) * 1000.0f / kSampleRate
+                                 : streamMs_ - samplesToMs(seg->n);
+        endSegment.endMs = endSegment.startMs + samplesToMs(seg->n);
+      }
 
       SherpaOnnxDestroySpeechSegment(seg);
       SherpaOnnxVoiceActivityDetectorPop(vad_);

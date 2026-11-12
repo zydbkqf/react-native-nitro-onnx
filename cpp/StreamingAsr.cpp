@@ -95,47 +95,70 @@ std::shared_ptr<Promise<void>> StreamingAsr::unload() {
 }
 
 std::optional<std::function<void(const AsrResult& /* result */)>> StreamingAsr::getOnPartialResult() {
+  std::lock_guard<std::mutex> lock(callbackMutex_);
   return onPartialResult_;
 }
 
 void StreamingAsr::setOnPartialResult(
     const std::optional<std::function<void(const AsrResult& /* result */)>>& onPartialResult) {
+  std::lock_guard<std::mutex> lock(callbackMutex_);
   onPartialResult_ = onPartialResult;
 }
 
 std::optional<std::function<void(const AsrResult& /* result */)>> StreamingAsr::getOnFinalResult() {
+  std::lock_guard<std::mutex> lock(callbackMutex_);
   return onFinalResult_;
 }
 
 void StreamingAsr::setOnFinalResult(
     const std::optional<std::function<void(const AsrResult& /* result */)>>& onFinalResult) {
+  std::lock_guard<std::mutex> lock(callbackMutex_);
   onFinalResult_ = onFinalResult;
 }
 
 std::optional<std::function<void(const std::string& /* error */)>> StreamingAsr::getOnError() {
+  std::lock_guard<std::mutex> lock(callbackMutex_);
   return onError_;
 }
 
 void StreamingAsr::setOnError(
     const std::optional<std::function<void(const std::string& /* error */)>>& onError) {
+  std::lock_guard<std::mutex> lock(callbackMutex_);
   onError_ = onError;
 }
 
 void StreamingAsr::onPartialResult(const AsrEngineResult& result) {
-  if (onPartialResult_.has_value()) {
-    onPartialResult_.value()(toAsrResult(result));
+  // Copy the callback out of the lock: the JS thread may replace it at any
+  // moment, and invoking under the mutex would risk re-entering the module.
+  std::optional<std::function<void(const AsrResult&)>> callback;
+  {
+    std::lock_guard<std::mutex> lock(callbackMutex_);
+    callback = onPartialResult_;
+  }
+  if (callback.has_value()) {
+    callback.value()(toAsrResult(result));
   }
 }
 
 void StreamingAsr::onFinalResult(const AsrEngineResult& result) {
-  if (onFinalResult_.has_value()) {
-    onFinalResult_.value()(toAsrResult(result));
+  std::optional<std::function<void(const AsrResult&)>> callback;
+  {
+    std::lock_guard<std::mutex> lock(callbackMutex_);
+    callback = onFinalResult_;
+  }
+  if (callback.has_value()) {
+    callback.value()(toAsrResult(result));
   }
 }
 
 void StreamingAsr::onError(const std::string& error) {
-  if (onError_.has_value()) {
-    onError_.value()(error);
+  std::optional<std::function<void(const std::string&)>> callback;
+  {
+    std::lock_guard<std::mutex> lock(callbackMutex_);
+    callback = onError_;
+  }
+  if (callback.has_value()) {
+    callback.value()(error);
   }
 }
 

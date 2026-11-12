@@ -10,7 +10,7 @@ std::string g_resourceDir;
 std::string g_documentDir;
 }
 
-const std::string& getResourceDir() {
+std::string getResourceDir() {
   return g_resourceDir;
 }
 
@@ -18,7 +18,7 @@ void setResourceDir(const std::string& dir) {
   g_resourceDir = dir;
 }
 
-const std::string& getDocumentDir() {
+std::string getDocumentDir() {
   return g_documentDir;
 }
 

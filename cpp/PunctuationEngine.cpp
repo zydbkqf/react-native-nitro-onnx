@@ -41,6 +41,13 @@ void PunctuationEngine::load(const PunctuationEngineConfig& config) {
   std::lock_guard<std::mutex> lock(mutex_);
   config_ = config;
 
+  // load() describes the complete set of models this instance should have: a
+  // second load with only one model configured must not leave the previously
+  // loaded counterpart active, which is what the TS contract (and
+  // isOfflineLoaded / isOnlineLoaded) promises.
+  offline_.reset();
+  online_.reset();
+
   if (config_.ctTransformer.empty() && config_.cnnBilstm.empty()) {
     throw std::runtime_error(
         "Punctuation requires at least one model: set ctTransformer (offline) "

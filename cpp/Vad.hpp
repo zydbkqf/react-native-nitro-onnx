@@ -12,6 +12,7 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 
 namespace margelo::nitro::onnx::speech {
@@ -54,6 +55,9 @@ class Vad : public HybridVadSpec,
  private:
   VadEngine engine_;
   VadConfig currentConfig_;
+  // Callbacks are set from the JS thread and invoked on the engine's VAD thread,
+  // so every access goes through callbackMutex_.
+  mutable std::mutex callbackMutex_;
   std::optional<std::function<void(const VadSegment&)>> onSpeechStart_;
   std::optional<std::function<void(const VadSegment&)>> onSpeechEnd_;
   std::optional<std::function<void(const std::string&)>> onError_;

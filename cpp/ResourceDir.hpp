@@ -10,10 +10,13 @@
 
 namespace margelo::nitro::onnx::speech {
 
-const std::string& getResourceDir();
+// Returned by value on purpose: these are process-wide strings that the
+// platform layer may set at startup while another thread reads them, and a
+// reference would both race and outlive the caller's assumption.
+std::string getResourceDir();
 void setResourceDir(const std::string& dir);
 
-const std::string& getDocumentDir();
+std::string getDocumentDir();
 void setDocumentDir(const std::string& dir);
 
 }  // namespace margelo::nitro::onnx::speech

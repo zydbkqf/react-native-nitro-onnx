@@ -11,6 +11,7 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 
 namespace margelo::nitro::onnx::speech {
@@ -38,7 +39,13 @@ class KeywordSpotter : public HybridKeywordSpotterSpec {
       const std::optional<std::function<void(const std::string& /* error */)>>& onError) override;
 
  private:
+  void emitError(const std::string& error);
+  void emitKeywords(const std::vector<KeywordSpotterEngineResult>& hits);
+
   KeywordSpotterEngine engine_;
+  // Callbacks are written from the JS thread and read inside the promise/worker
+  // lambdas, so the optional itself is guarded.
+  mutable std::mutex callbackMutex_;
   std::optional<std::function<void(const KeywordSpotterResult&)>> onKeyword_;
   std::optional<std::function<void(const std::string&)>> onError_;
 };

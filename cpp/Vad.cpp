@@ -80,47 +80,70 @@ std::shared_ptr<Promise<void>> Vad::reset() {
 }
 
 std::optional<std::function<void(const VadSegment& /* segment */)>> Vad::getOnSpeechStart() {
+  std::lock_guard<std::mutex> lock(callbackMutex_);
   return onSpeechStart_;
 }
 
 void Vad::setOnSpeechStart(
     const std::optional<std::function<void(const VadSegment& /* segment */)>>& onSpeechStart) {
+  std::lock_guard<std::mutex> lock(callbackMutex_);
   onSpeechStart_ = onSpeechStart;
 }
 
 std::optional<std::function<void(const VadSegment& /* segment */)>> Vad::getOnSpeechEnd() {
+  std::lock_guard<std::mutex> lock(callbackMutex_);
   return onSpeechEnd_;
 }
 
 void Vad::setOnSpeechEnd(
     const std::optional<std::function<void(const VadSegment& /* segment */)>>& onSpeechEnd) {
+  std::lock_guard<std::mutex> lock(callbackMutex_);
   onSpeechEnd_ = onSpeechEnd;
 }
 
 std::optional<std::function<void(const std::string& /* error */)>> Vad::getOnError() {
+  std::lock_guard<std::mutex> lock(callbackMutex_);
   return onError_;
 }
 
 void Vad::setOnError(
     const std::optional<std::function<void(const std::string& /* error */)>>& onError) {
+  std::lock_guard<std::mutex> lock(callbackMutex_);
   onError_ = onError;
 }
 
 void Vad::onSpeechStart(const VadEngineSegment& segment) {
-  if (onSpeechStart_.has_value()) {
-    onSpeechStart_.value()(toVadSegment(segment));
+  // Copy under the lock and invoke outside it: the JS thread may swap the
+  // callback while the VAD thread is mid-callback.
+  std::optional<std::function<void(const VadSegment&)>> callback;
+  {
+    std::lock_guard<std::mutex> lock(callbackMutex_);
+    callback = onSpeechStart_;
+  }
+  if (callback.has_value()) {
+    callback.value()(toVadSegment(segment));
   }
 }
 
 void Vad::onSpeechEnd(const VadEngineSegment& segment) {
-  if (onSpeechEnd_.has_value()) {
-    onSpeechEnd_.value()(toVadSegment(segment));
+  std::optional<std::function<void(const VadSegment&)>> callback;
+  {
+    std::lock_guard<std::mutex> lock(callbackMutex_);
+    callback = onSpeechEnd_;
+  }
+  if (callback.has_value()) {
+    callback.value()(toVadSegment(segment));
   }
 }
 
 void Vad::onError(const std::string& error) {
-  if (onError_.has_value()) {
-    onError_.value()(error);
+  std::optional<std::function<void(const std::string&)>> callback;
+  {
+    std::lock_guard<std::mutex> lock(callbackMutex_);
+    callback = onError_;
+  }
+  if (callback.has_value()) {
+    callback.value()(error);
   }
 }
 
