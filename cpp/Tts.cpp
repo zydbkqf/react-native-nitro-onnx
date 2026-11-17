@@ -9,8 +9,10 @@
 #include <NitroModules/ArrayBuffer.hpp>
 #include <bit>
 #include <cmath>
+#include <cstdint>
 #include <fstream>
 #include <stdexcept>
+#include <vector>
 
 namespace margelo::nitro::onnx::speech {
 
@@ -196,14 +198,23 @@ std::shared_ptr<Promise<TtsResult>> Tts::synthesizeWithSpeaker(
 }
 
 std::shared_ptr<Promise<void>> Tts::saveWav(const TtsResult& result, const std::string& path) {
-  return Promise<void>::async([result, path]() {
-    const auto sampleRate = static_cast<uint32_t>(result.sampleRate);
+  // Snapshot the samples on the JS thread: `result` is a hybrid struct holding
+  // an ArrayBuffer, and its size()/data() must not be touched from the
+  // background pool that Promise::async runs on. Only the copied byte vector
+  // crosses the boundary.
+  const auto sampleRate = static_cast<uint32_t>(result.sampleRate);
+  std::vector<uint8_t> pcmBytes;
+  if (result.samples != nullptr) {
+    const uint8_t* bytes = result.samples->data();
+    pcmBytes.assign(bytes, bytes + result.samples->size());
+  }
+
+  return Promise<void>::async([pcmBytes = std::move(pcmBytes), path, sampleRate]() {
     const uint16_t numChannels = 1;
     const uint16_t bitsPerSample = 32;
     const uint16_t audioFormat = 3; // IEEE float
 
-    const auto* sampleData = reinterpret_cast<const uint8_t*>(result.samples->data());
-    const uint32_t dataByteCount = static_cast<uint32_t>(result.samples->size());
+    const uint32_t dataByteCount = static_cast<uint32_t>(pcmBytes.size());
 
     const uint32_t byteRate = sampleRate * numChannels * bitsPerSample / 8;
     const uint16_t blockAlign = numChannels * bitsPerSample / 8;
@@ -233,7 +244,7 @@ std::shared_ptr<Promise<void>> Tts::saveWav(const TtsResult& result, const std::
     // data chunk
     file.write("data", 4);
     file.write(reinterpret_cast<const char*>(&dataByteCount), 4);
-    file.write(reinterpret_cast<const char*>(sampleData), dataByteCount);
+    file.write(reinterpret_cast<const char*>(pcmBytes.data()), static_cast<std::streamsize>(dataByteCount));
   });
 }
 
