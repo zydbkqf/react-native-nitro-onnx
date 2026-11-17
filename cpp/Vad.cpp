@@ -63,8 +63,6 @@ bool Vad::isInitialized() {
 }
 
 std::shared_ptr<Promise<void>> Vad::process(const std::shared_ptr<ArrayBuffer>& samples) {
-  // Read the buffer on the JS thread: Promise::async runs on a background pool,
-  // where synchronous size()/data() access to an ArrayBuffer is not allowed.
   auto floatSamples = bytesToFloatVector(samples->data(), samples->size());
   return Promise<void>::async([self = shared_cast<Vad>(), floatSamples = std::move(floatSamples)]() {
     self->engine_.acceptWaveform(floatSamples);

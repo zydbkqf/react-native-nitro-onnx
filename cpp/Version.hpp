@@ -4,4 +4,4 @@
 // ------------------------------------------------------------------------------
 #pragma once
 
-#define NITRO_ONNX_SPEECH_VERSION "0.2.10"
+#define NITRO_ONNX_SPEECH_VERSION "0.2.11"
